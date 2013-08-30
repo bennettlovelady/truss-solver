@@ -10,6 +10,7 @@ step 2: expand the members table to include dx, dy, L, lij, mij
 step 3: construct a 2nx2n matrix of coefficients C, where n = # joints
 step 4: construct the "applied forces" vector P
 step 5: solve the matrix equation C.Q=P, where Q is a list of unknowns
+step 6: find the maximum load
 '''
 
 import numpy as np
@@ -20,17 +21,23 @@ fin = open('joints.in', 'r')
 joints = np.genfromtxt(fin, comments="#", delimiter="\t")
 fin.close()
 
-fin = open('members.in', 'r')
-members = np.genfromtxt(fin, comments="#", delimiter="\t")
-fin.close()
+with open('members.in', 'r') as fin:
+    members = np.genfromtxt(fin, comments="#", delimiter="\t")
 
-fin = open('supports.in', 'r')
-supports = np.genfromtxt(fin, comments="#")
-fin.close()
+with open('supports.in', 'r') as fin:
+    supports = np.genfromtxt(fin, comments="#")
 
-fin = open('applied.in','r')
-applied = np.genfromtxt(fin, comments="#", delimiter="\t")
-fin.close()
+with open('applied.in','r') as fin:
+    applied = np.genfromtxt(fin, comments="#", delimiter="\t")
+
+material = {}
+with open('material.in', 'r') as fin:
+    for line in fin:
+        if (line[0] != '#'):
+            spl = line.split()
+            if len(spl)==2:
+                (key, value) = spl 
+                material[key] = float(value)
 
 
 # ------ step 2 ------
@@ -40,9 +47,9 @@ for n in range(5):
 
 # members table now has five extra columns (empty)
 
-for n in range(members.shape[0]):
-    i   = members[n,1]
-    j   = members[n,2]
+for k in range(members.shape[0]):
+    i   = members[k,1]
+    j   = members[k,2]
     # get the values
     dx  = joints[j-1,1] - joints[i-1,1]
     dy  = joints[j-1,2] - joints[i-1,2]
@@ -50,7 +57,7 @@ for n in range(members.shape[0]):
     lij = dx/L
     mij = dy/L
     # put them in the table
-    members[n,3], members[n,4], members[n,5], members[n,6], members[n,7]\
+    members[k,3], members[k,4], members[k,5], members[k,6], members[k,7]\
         = dx, dy, L, lij, mij
 
 '''
@@ -97,6 +104,7 @@ for i in range(1,num+1):
 
 # ------ step 5: solve ------
 Q = np.linalg.solve(C,P)
+# done. that was easy!
 
 names = ['R'+str(int(supports[0]))+'x',\
          'R'+str(int(supports[1]))+'y',\
@@ -113,13 +121,46 @@ def state(x):
 
 fout = open('result.out', 'w')
 
+# output a table of all members' internal forces
 for i in range(members.shape[0]):
     fout.write(str(i+1) + '\t' + state(Q[i]) + '\t' + str(Q[i]) + '\n')
 for i in range(3):
     x = members.shape[0] + i
     fout.write('R' + str(int(supports[i])) + coord[i] + '\t' \
-                   + state(Q[x]) + '\t' \
+                   + '\t' \
                    + str(Q[x]) + '\n')
+fout.write('\n')
 
+# ------ step 6: find the maximum load
+# find the members under the highest forces
+intforces = Q.tolist()[:-3]
+maxC   = min(intforces)
+maxC_m = [i for i,j in enumerate(intforces) if j == maxC]
+maxT   = max(intforces)
+maxT_m = [i for i,j in enumerate(intforces) if j == maxT]
+
+fout.write('\nmembers under most compression: \n')
+for i in maxC_m:
+    fout.write('member ' + str(i) + ':\t' + str(maxC) + '\n')
+fout.write('\nmembers under most tension: \n')
+for i in maxT_m:
+    fout.write('member ' + str(i) + ':\t' + str(maxT) + '\n')
+
+# use the material properties in materials.in to find the safe load
+# first, buckling:
+# just in case they are different lengths, use the max length of maxC
+maxC_l = [0]*len(maxC_m)
+for i in range(len(maxC_m)):
+    maxC_l[i] = members[maxC_m[i],5] 
+maxL_buckling = np.pi**2 * material['E'] * material['I'] \
+                    / (maxC * max(maxC_l)**2) 
+
+# second, yield:
+maxF = max(maxT, abs(maxC))
+maxL_yield = material['sf'] * material['s_y'] * material['A'] / maxF
+
+maxL = max(maxL_yield, maxL_buckling)
+fout.write('\nmax load:\t' + str(maxL) + ' N\n')
+fout.write('\t\t' + str(maxL/9.81) + ' kg\n')
 fout.close()
 

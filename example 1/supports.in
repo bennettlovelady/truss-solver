@@ -1,0 +1,6 @@
+# assumes one pin support and one roller support
+# this is a list of joints with support forces
+# in order: R_pin_x, R_pin_y, R_roller_y
+1
+1
+12

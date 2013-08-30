@@ -1,0 +1,4 @@
+# the loads applied to the truss
+# format: joint, Fx, Fy
+1	0	0
+7	0	-1

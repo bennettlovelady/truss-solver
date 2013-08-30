@@ -1,4 +1,4 @@
-# list of joints and their x,y coords
+# list of joints and their x,y coords (in mm)
 # joint number, x coord, y coord
 1	0	0
 2	1	1

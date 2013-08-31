@@ -111,16 +111,16 @@ try:
     Q = np.linalg.solve(C,P)
 except np.linalg.LinAlgError:
     print "singular matrix. using least squares.."
-    fout.write("The truss produced a singular matrix. Used least-squares to solve...\n\n")
+    fout.write("The system produced a singular matrix.\n\
+                These results were found by least squares approximation.\n")
     Q = np.linalg.lstsq(C,P)[0]
-    with open(path+'Q.mat','w') as fq:
-        np.savetxt(fq, Q, fmt='%.3f', delimiter='\t')
     for i in range(len(Q)):
         if abs(Q[i]) < 0.001:
             Q[i] = 0.0
 
 print "writing output.. "
-names = ['R'+str(int(supports[0]))+'x',\
+    
+reactions = ['R'+str(int(supports[0]))+'x',\
          'R'+str(int(supports[1]))+'y',\
          'R'+str(int(supports[2]))+'y']
 coord = ['x', 'y', 'y']
@@ -137,10 +137,9 @@ def state(x):
 for i in range(members.shape[0]):
     fout.write(str(i+1) + '\t' + state(Q[i]) + '\t' + str(Q[i]) + '\n')
 for i in range(3):
-    fout.write('R' + str(int(supports[i])) + coord[i] + '\t' \
-                   + '\t' \
-                   + str(Q[members.shape[0]+i]) + '\n')
+    fout.write(reactions[i] + '\t\t' + str(Q[members.shape[0]+i]) + '\n')
 fout.write('\n')
+
 
 # ------ step 6: find the maximum load ------
 # find the members under the highest forces
@@ -150,7 +149,7 @@ maxC_m = [i for i,j in enumerate(intforces) if j == maxC]
 maxT   = max(intforces)
 maxT_m = [i for i,j in enumerate(intforces) if j == maxT]
 
-fout.write('\nmembers under most compression: \n')
+fout.write('members under most compression: \n')
 for i in maxC_m:
     fout.write('member ' + str(i+1) + ':\t' + str(maxC) + '\n')
 fout.write('\nmembers under most tension: \n')
@@ -171,28 +170,25 @@ maxF = max(maxT, abs(maxC))
 maxL_yield = material['sf'] * material['s_y'] * material['A'] / maxF
 
 maxL = min(maxL_yield, maxL_buckling)
-fout.write('\nmax load:\t' + str(maxL) + ' N\n')
+fout.write('max load:\t' + str(maxL) + ' N\n')
 fout.write('\t\t' + str(maxL/9.81) + ' kg\n')
 fout.close()
 
 
 # ------ step 7: draw the bridge ------
-# find the length of the truss and scale it accordingly
-
 import matplotlib.pyplot as plt
 import matplotlib.lines as mlines
 import matplotlib.text as text
 fig = plt.figure()
 ax = fig.add_subplot(1,1,1)
 
-# find the unit length and scale accordingly
+# find the unit length to use as padding
 unit = 1000000
 maxX = 0
 for k in range(members.shape[0]):
     if members[k,5] < unit:
         unit = members[k,5]
 for i in range(joints.shape[0]):
-    joints[i,1], joints[i,2] = joints[i,1]/unit, joints[i,2]/unit
     if joints[i,1] > maxX:
         maxX = joints[i,1]
 
@@ -210,8 +206,31 @@ for k in range(members.shape[0]):
 for i in range(joints.shape[0]):
     ax.plot(joints[i,1], joints[i,2], 'ko')
 
-ax.axis([-1,maxX+1,-maxX/2,maxX/2])
+# draw the reaction and load forces
+r = Q.tolist()[-3:]
+for i in range(3):
+    xp, yp = joints[supports[i]-1,1], joints[supports[i]-1,2]
+    axis = [1,0] if i == 0 else [0,1]
+    axis = [axis[0]*unit*1.2, axis[1]*unit]
+    ax.arrow(xp-axis[0],yp-axis[1],axis[0]*0.6,axis[1]*0.6,\
+             fc='k', ec='k', head_width=unit*0.15, head_length=unit*0.25)
+    ax.text(xp-axis[0]+unit*0.1, yp-axis[1]+unit*0.1, reactions[i], fontsize=8)
+
+num = applied.shape[0]-1
+for i in range(1,num+1):
+    xp, yp = joints[applied[i,0]-1,1], joints[applied[i,0]-1,2]
+    lx, ly = applied[i,1], applied[i,2]
+    mag = np.sqrt(lx**2 + ly**2)
+    lx, ly = lx/mag, ly/mag
+    ax.arrow(xp+lx*unit*0.2, yp+ly*unit*0.2, lx*unit*0.75, ly*unit*0.75,\
+             fc='k', ec='k', head_width=unit*0.15, head_length=unit*0.25)
+    ax.text(xp+(lx*1.5)*unit, yp+(ly*1.5)*unit, 'Load', fontsize=8)
+
+# make sure the truss appears in the centre of the image
+ax.axis('equal')
+ax.axis([-unit,maxX+unit,-maxX/1.5,+maxX/1.5])
 ax.axis('off')
-fig.savefig(path + 'mpl.png')
+fig.savefig(path + 'img.png')
+
 
 print "analysis complete!"

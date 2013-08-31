@@ -2,7 +2,7 @@
 
 '''
 solves a truss defined by the files joints.in, members.in and supports.in
-returns a file forces.out with the resultant forces
+returns a file result.out with the resultant forces
 
 step 1: read input files joints.in, members.in, supports.in, applied.in.
         begin constructing the relevant tables
@@ -11,28 +11,33 @@ step 3: construct a 2nx2n matrix of coefficients C, where n = # joints
 step 4: construct the "applied forces" vector P
 step 5: solve the matrix equation C.Q=P, where Q is a list of unknowns
 step 6: find the maximum load
-step 7: draw the bridge and C/T members
+step 7: draw the bridge and label C/T members
 '''
 
 import numpy as np
 
+path = raw_input('input the directory containing the .in files: ')
+if path[-1] != '/':
+    path = path + '/'
+
 
 # ------ step 1 ------
-fin = open('joints.in', 'r')
-joints = np.genfromtxt(fin, comments="#", delimiter="\t")
-fin.close()
+print "reading input files.. "
 
-with open('members.in', 'r') as fin:
+with open(path+'joints.in','r') as fin:
+    joints = np.genfromtxt(fin, comments="#", delimiter="\t")
+
+with open(path+'members.in', 'r') as fin:
     members = np.genfromtxt(fin, comments="#", delimiter="\t")
 
-with open('supports.in', 'r') as fin:
+with open(path+'supports.in', 'r') as fin:
     supports = np.genfromtxt(fin, comments="#")
 
-with open('applied.in','r') as fin:
+with open(path+'applied.in','r') as fin:
     applied = np.genfromtxt(fin, comments="#", delimiter="\t")
 
 material = {}
-with open('material.in', 'r') as fin:
+with open(path+'material.in', 'r') as fin:
     for line in fin:
         if (line[0] != '#'):
             spl = line.split()
@@ -42,10 +47,11 @@ with open('material.in', 'r') as fin:
 
 
 # ------ step 2 ------
+print "constructing matrices.. "
+
 zeroes = [[0]]*members.shape[0]
 for n in range(5):
     members = np.concatenate((members, zeroes), 1)
-
 # members table now has five extra columns (empty)
 
 for k in range(members.shape[0]):
@@ -61,11 +67,6 @@ for k in range(members.shape[0]):
     members[k,3], members[k,4], members[k,5], members[k,6], members[k,7]\
         = dx, dy, L, lij, mij
 
-'''
-fout = open('out.out','w')
-fout.write(np.array_str(members, max_line_width=150))
-fout.close()
-'''
 # the members table is now fully populated with lij, mij
 
 
@@ -76,22 +77,16 @@ for k in range(members.shape[0]):
     i   = members[k,1]
     j   = members[k,2]
     lij = members[k,6]
-    mij = members[k,7]
-    
+    mij = members[k,7]    
     C[2*i-2, k] = lij
     C[2*i-1, k] = mij
     C[2*j-2, k] = -lij
     C[2*j-1, k] = -mij
 
 # now add the coefficients for the reaction forces:
-C[2*(supports[0])-2, 2*n-3] = 1
-C[2*(supports[1])-1, 2*n-2] = 1
-C[2*(supports[2])-1, 2*n-1] = 1
-'''
-fout = open('c.out', 'w')
-fout.write(np.array_str(C, max_line_width=500))
-fout.close()
-'''
+C[2*supports[0]-2, 2*n-3] = 1
+C[2*supports[1]-1, 2*n-2] = 1
+C[2*supports[2]-1, 2*n-1] = 1
 # C is complete!
 
 
@@ -104,9 +99,10 @@ for i in range(1,num+1):
 
 
 # ------ step 5: solve ------
+print "solving.. "
 Q = np.linalg.solve(C,P)
-# done. that was easy!
 
+print "writing output.. "
 names = ['R'+str(int(supports[0]))+'x',\
          'R'+str(int(supports[1]))+'y',\
          'R'+str(int(supports[2]))+'y']
@@ -120,7 +116,7 @@ def state(x):
     else:
         return ''
 
-fout = open('result.out', 'w')
+fout = open(path+'result.out', 'w')
 
 # output a table of all members' internal forces
 for i in range(members.shape[0]):
@@ -132,7 +128,7 @@ for i in range(3):
                    + str(Q[x]) + '\n')
 fout.write('\n')
 
-# ------ step 6: find the maximum load
+# ------ step 6: find the maximum load ------
 # find the members under the highest forces
 intforces = Q.tolist()[:-3]
 maxC   = min(intforces)
@@ -160,17 +156,16 @@ maxL_buckling = np.pi**2 * material['E'] * material['I'] \
 maxF = max(maxT, abs(maxC))
 maxL_yield = material['sf'] * material['s_y'] * material['A'] / maxF
 
-maxL = max(maxL_yield, maxL_buckling)
+maxL = min(maxL_yield, maxL_buckling)
 fout.write('\nmax load:\t' + str(maxL) + ' N\n')
 fout.write('\t\t' + str(maxL/9.81) + ' kg\n')
 fout.close()
 
 
 # ------ step 7: draw the bridge ------
-
 import Image, ImageDraw
-W = 1024
-H = 720
+W = 640
+H = 480
 margin = 12
 img = Image.new("RGB", (W,H), "white")
 draw = ImageDraw.Draw(img)
@@ -185,49 +180,29 @@ for i in range(joints.shape[0]):
     if ypos > maxY:
         maxY = ypos
 scale = (W - 2*margin)/maxX
-
 minY = (H-maxY)/2
 
-# draw the joints
-def j(x,y):
-    xp = margin + scale*x
-    yp = H - minY - scale*y
-    draw.ellipse((xp-2,yp-2,xp+2,yp+2),fill=None,outline="black")
+# draw the joints, and label them
 for i in range(joints.shape[0]):
-    j(joints[i,1],joints[i,2])
+    xp = margin + scale*joints[i,1]
+    yp = H - minY - scale*joints[i,2]
+    draw.ellipse((xp-2,yp-2,xp+2,yp+2), fill=None, outline="black")
+    xp = xp + 5
+    yp = yp - 12
+    draw.text((xp, yp), str(int(joints[i,0])), fill="black")
 
-# label the joints
-def lj(x,y,label):
-    xp = margin + scale*x + 5
-    yp = H - minY - scale*y - 12
-    draw.text((xp,yp), label, fill="black")
-for i in range(joints.shape[0]):
-    lj(joints[i,1],joints[i,2],str(int(joints[i,0])))
-
-# draw the members
-def m(ix,iy,jx,jy):
-    ixp = margin + scale*ix
-    iyp = H - minY - scale*iy
-    jxp = margin + scale*jx
-    jyp = H - minY - scale*jy
+# draw the members and label them, coloring for tension/compression
+for k in range(members.shape[0]):
+    i, j = members[k,1], members[k,2]
+    ix, iy, jx, jy = joints[i-1,1], joints[i-1,2], joints[j-1,1], joints[j-1,2]
+    ixp, jxp = margin + scale*ix, margin + scale*jx
+    iyp, jyp = H - minY - scale*iy, H - minY - scale*jy
     draw.line((ixp,iyp,jxp,jyp),fill="black")
-for k in range(members.shape[0]):
-    i = members[k,1]
-    j = members[k,2]
-    m(joints[i-1,1], joints[i-1,2], joints[j-1,1], joints[j-1,2])
+    mxp = (ixp + jxp)/2
+    myp = (iyp + jyp)/2 - 15
+    color = "red" if Q[k]>0 else ("blue" if Q[k]<0 else "limegreen")
+    draw.text((mxp, myp), str(k+1), color)
 
-# label the members and color according to tension/compression
-def lm(ix,iy,jx,jy,label,c):
-    mx = (ix+jx)/2
-    my = (iy+jy)/2
-    mxp = margin + scale*mx 
-    myp = H - minY - scale*my - 15
-    draw.text((mxp,myp), label, fill=c)
-for k in range(members.shape[0]):
-    i = members[k,1]
-    j = members[k,2]
-    color = "red" if Q[k]>0 else ("blue" if Q[k]<0 else "green")
-    lm(joints[i-1,1],joints[i-1,2],joints[j-1,1],joints[j-1,2],str(k+1),color)
+img.save(path+'img.png', 'png')
 
-# save the picture
-img.save('img.png', 'png')
+print "analysis complete!"

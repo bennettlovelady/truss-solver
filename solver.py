@@ -16,10 +16,10 @@ step 7: draw the bridge and label C/T members
 
 import numpy as np
 
-path = raw_input('input the directory containing the .in files: ')
+path = raw_input('input the numbered file in "/straw bridge" containing the .in files: ')
 if path[-1] != '/':
     path = path + '/'
-
+path = '/home/bennett/Documents/ensc1002/straw bridge/' + path
 
 # ------ step 1 ------
 print "reading input files.. "
@@ -89,6 +89,11 @@ C[2*supports[1]-1, 2*n-2] = 1
 C[2*supports[2]-1, 2*n-1] = 1
 # C is complete!
 
+'''
+with open(path+'C.mat', 'w') as fout:
+    np.savetxt(fout, C, fmt='%.3f', delimiter='\t')
+'''
+
 
 # ------ step 4: construct P ------
 P = np.zeros(2*n)
@@ -100,7 +105,19 @@ for i in range(1,num+1):
 
 # ------ step 5: solve ------
 print "solving.. "
-Q = np.linalg.solve(C,P)
+fout = open(path+'result.out', 'w')
+
+try:
+    Q = np.linalg.solve(C,P)
+except np.linalg.LinAlgError:
+    print "singular matrix. using least squares.."
+    fout.write("The truss produced a singular matrix. Used least-squares to solve...\n\n")
+    Q = np.linalg.lstsq(C,P)[0]
+    with open(path+'Q.mat','w') as fq:
+        np.savetxt(fq, Q, fmt='%.3f', delimiter='\t')
+    for i in range(len(Q)):
+        if abs(Q[i]) < 0.001:
+            Q[i] = 0.0
 
 print "writing output.. "
 names = ['R'+str(int(supports[0]))+'x',\
@@ -116,16 +133,13 @@ def state(x):
     else:
         return ''
 
-fout = open(path+'result.out', 'w')
-
 # output a table of all members' internal forces
 for i in range(members.shape[0]):
     fout.write(str(i+1) + '\t' + state(Q[i]) + '\t' + str(Q[i]) + '\n')
 for i in range(3):
-    x = members.shape[0] + i
     fout.write('R' + str(int(supports[i])) + coord[i] + '\t' \
                    + '\t' \
-                   + str(Q[x]) + '\n')
+                   + str(Q[members.shape[0]+i]) + '\n')
 fout.write('\n')
 
 # ------ step 6: find the maximum load ------
@@ -150,7 +164,7 @@ maxC_l = [0]*len(maxC_m)
 for i in range(len(maxC_m)):
     maxC_l[i] = members[maxC_m[i],5] 
 maxL_buckling = np.pi**2 * material['E'] * material['I'] \
-                    / (maxC * max(maxC_l)**2) 
+                    / (abs(maxC) * max(maxC_l)**2) 
 
 # second, yield:
 maxF = max(maxT, abs(maxC))
@@ -163,46 +177,41 @@ fout.close()
 
 
 # ------ step 7: draw the bridge ------
-import Image, ImageDraw
-W = 640
-H = 480
-margin = 12
-img = Image.new("RGB", (W,H), "white")
-draw = ImageDraw.Draw(img)
 # find the length of the truss and scale it accordingly
+
+import matplotlib.pyplot as plt
+import matplotlib.lines as mlines
+import matplotlib.text as text
+fig = plt.figure()
+ax = fig.add_subplot(1,1,1)
+
+# find the unit length and scale accordingly
+unit = 1000000
 maxX = 0
-maxY = 0
+for k in range(members.shape[0]):
+    if members[k,5] < unit:
+        unit = members[k,5]
 for i in range(joints.shape[0]):
-    xpos = joints[i,1]
-    ypos = joints[i,2]
-    if xpos > maxX:
-        maxX = xpos
-    if ypos > maxY:
-        maxY = ypos
-scale = (W - 2*margin)/maxX
-minY = (H-maxY)/2
+    joints[i,1], joints[i,2] = joints[i,1]/unit, joints[i,2]/unit
+    if joints[i,1] > maxX:
+        maxX = joints[i,1]
 
-# draw the joints, and label them
-for i in range(joints.shape[0]):
-    xp = margin + scale*joints[i,1]
-    yp = H - minY - scale*joints[i,2]
-    draw.ellipse((xp-2,yp-2,xp+2,yp+2), fill=None, outline="black")
-    xp = xp + 5
-    yp = yp - 12
-    draw.text((xp, yp), str(int(joints[i,0])), fill="black")
-
-# draw the members and label them, coloring for tension/compression
+# draw the members first
 for k in range(members.shape[0]):
     i, j = members[k,1], members[k,2]
     ix, iy, jx, jy = joints[i-1,1], joints[i-1,2], joints[j-1,1], joints[j-1,2]
-    ixp, jxp = margin + scale*ix, margin + scale*jx
-    iyp, jyp = H - minY - scale*iy, H - minY - scale*jy
-    draw.line((ixp,iyp,jxp,jyp),fill="black")
-    mxp = (ixp + jxp)/2
-    myp = (iyp + jyp)/2 - 15
-    color = "red" if Q[k]>0 else ("blue" if Q[k]<0 else "limegreen")
-    draw.text((mxp, myp), str(k+1), color)
+    ix, iy, jx, jy = ix, iy, jx, jy
+    c = "#ff0000" if Q[k]>0 else ("#0000ff" if Q[k]<0 else "#00ff00")
+    ax.add_line(mlines.Line2D([ix,jx], [iy,jy], lw=2., color=c))
+    mx = (ix+jx)/2
+    my = (iy+jy)/2
+    ax.text(mx,my,str(int(members[k,0])), fontsize=8)
 
-img.save(path+'img.png', 'png')
+for i in range(joints.shape[0]):
+    ax.plot(joints[i,1], joints[i,2], 'ko')
+
+ax.axis([-1,maxX+1,-maxX/2,maxX/2])
+ax.axis('off')
+fig.savefig(path + 'mpl.png')
 
 print "analysis complete!"

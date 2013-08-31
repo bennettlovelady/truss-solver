@@ -11,6 +11,7 @@ step 3: construct a 2nx2n matrix of coefficients C, where n = # joints
 step 4: construct the "applied forces" vector P
 step 5: solve the matrix equation C.Q=P, where Q is a list of unknowns
 step 6: find the maximum load
+step 7: draw the bridge and C/T members
 '''
 
 import numpy as np
@@ -141,10 +142,10 @@ maxT_m = [i for i,j in enumerate(intforces) if j == maxT]
 
 fout.write('\nmembers under most compression: \n')
 for i in maxC_m:
-    fout.write('member ' + str(i) + ':\t' + str(maxC) + '\n')
+    fout.write('member ' + str(i+1) + ':\t' + str(maxC) + '\n')
 fout.write('\nmembers under most tension: \n')
 for i in maxT_m:
-    fout.write('member ' + str(i) + ':\t' + str(maxT) + '\n')
+    fout.write('member ' + str(i+1) + ':\t' + str(maxT) + '\n')
 
 # use the material properties in materials.in to find the safe load
 # first, buckling:
@@ -164,3 +165,49 @@ fout.write('\nmax load:\t' + str(maxL) + ' N\n')
 fout.write('\t\t' + str(maxL/9.81) + ' kg\n')
 fout.close()
 
+
+# ------ step 7: draw the bridge ------
+
+import Image, ImageDraw
+W = 1024
+H = 720
+margin = 12
+img = Image.new("RGB", (W,H), "white")
+draw = ImageDraw.Draw(img)
+# find the length of the truss and scale it accordingly
+maxX = 0
+maxY = 0
+for i in range(joints.shape[0]):
+    xpos = joints[i,1]
+    ypos = joints[i,2]
+    if xpos > maxX:
+        maxX = xpos
+    if ypos > maxY:
+        maxY = ypos
+scale = (W - 2*margin)/maxX
+
+minY = (H-maxY)/2
+
+# draw the joints
+def j(x,y):
+    xp = margin + scale*x
+    yp = H - minY - scale*y
+    draw.ellipse((xp-2,yp-2,xp+2,yp+2),fill=None,outline="black")
+for i in range(joints.shape[0]):
+    j(joints[i,1],joints[i,2])
+
+# draw the members
+def m(ix,iy,jx,jy):
+    ixp = margin + scale*ix
+    iyp = H - minY - scale*iy
+    jxp = margin + scale*jx
+    jyp = H - minY - scale*jy
+    draw.line((ixp,iyp,jxp,jyp),fill="black")
+for k in range(members.shape[0]):
+    i = members[k,1]
+    j = members[k,2]
+    m(joints[i-1,1], joints[i-1,2], joints[j-1,1], joints[j-1,2])
+
+
+# save the picture
+img.save('img.png', 'png')

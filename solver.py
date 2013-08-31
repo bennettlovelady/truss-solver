@@ -196,6 +196,14 @@ def j(x,y):
 for i in range(joints.shape[0]):
     j(joints[i,1],joints[i,2])
 
+# label the joints
+def lj(x,y,label):
+    xp = margin + scale*x + 5
+    yp = H - minY - scale*y - 12
+    draw.text((xp,yp), label, fill="black")
+for i in range(joints.shape[0]):
+    lj(joints[i,1],joints[i,2],str(int(joints[i,0])))
+
 # draw the members
 def m(ix,iy,jx,jy):
     ixp = margin + scale*ix
@@ -208,6 +216,18 @@ for k in range(members.shape[0]):
     j = members[k,2]
     m(joints[i-1,1], joints[i-1,2], joints[j-1,1], joints[j-1,2])
 
+# label the members and color according to tension/compression
+def lm(ix,iy,jx,jy,label,c):
+    mx = (ix+jx)/2
+    my = (iy+jy)/2
+    mxp = margin + scale*mx 
+    myp = H - minY - scale*my - 15
+    draw.text((mxp,myp), label, fill=c)
+for k in range(members.shape[0]):
+    i = members[k,1]
+    j = members[k,2]
+    color = "red" if Q[k]>0 else ("blue" if Q[k]<0 else "green")
+    lm(joints[i-1,1],joints[i-1,2],joints[j-1,1],joints[j-1,2],str(k+1),color)
 
 # save the picture
 img.save('img.png', 'png')

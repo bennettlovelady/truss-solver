@@ -175,7 +175,19 @@ maxL_yield = material['sf'] * material['s_y'] * material['A'] / maxF
 
 maxL = min(maxL_yield, maxL_buckling)
 fout.write('max load:\t' + str(maxL) + ' N\n')
-fout.write('\t\t' + str(maxL/9.81) + ' kg\n')
+fout.write('\t\t' + str(maxL/9.81) + ' kg\n\n')
+
+# now the bridge length and total length of all members
+maxX = 0
+for i in range(joints.shape[0]):
+    if joints[i,1] > maxX:
+        maxX = joints[i,1]
+fout.write('bridge length:\t' + str(int(maxX)) + 'mm\n')
+sumL = 0
+for k in range(members.shape[0]):
+    sumL = sumL + members[k,5]
+fout.write('total material:\t' + str(int(sumL)) + 'mm\n')
+
 fout.close()
 
 
@@ -188,13 +200,9 @@ ax = fig.add_subplot(1,1,1)
 
 # find the unit length to use as padding
 unit = 1000000
-maxX = 0
 for k in range(members.shape[0]):
     if members[k,5] < unit:
         unit = members[k,5]
-for i in range(joints.shape[0]):
-    if joints[i,1] > maxX:
-        maxX = joints[i,1]
 
 # draw the members first
 for k in range(members.shape[0]):
@@ -292,12 +300,18 @@ if html_output:
                    '</td><td>' + str(maxT) + '</td></tr>\n')
     fout.write('</table><br><br>\n\n')
 
-    # maximum load
+    # maximum load, bridge length and material used
     initTable()
     fout.write('\t<tr><td>Max load:</td><td></td><td>' + \
                 str(round(maxL,4)) + ' N</td></tr>\n')
     fout.write('\t<tr><td></td><td></td><td>' + \
                 str(round(maxL/9.81,4)) + ' kg</td></tr>\n')
+    fout.write('\t<tr><td> </td></tr>\n')
+    fout.write('\t<tr><td>Bridge length:</td><td></td><td>' + \
+                str(int(maxX)) + 'mm</td></tr>\n')
+    fout.write('\t<tr><td>Material used:</td><td></td><td>' + \
+                str(int(sumL)) + 'mm</td></tr>\n')
+    fout.write('</table><br><br>\n\n')
 
 fout.close()
 

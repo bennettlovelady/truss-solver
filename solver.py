@@ -230,6 +230,14 @@ for i in range(1,num+1):
              fc='k', ec='k', head_width=unit*0.15, head_length=unit*0.25)
     ax.text(xp+(lx*1.5)*unit, yp+(ly*1.5)*unit, 'Load', fontsize=8)
 
+# draw a scale in the lower left
+xp = (joints[supports[0]-1,1] + joints[applied[1,0]-1,1])/2 - unit
+yp = joints[supports[0]-1,2] - unit*1.5
+ax.add_line(mlines.Line2D([xp,xp+unit],[yp,yp], lw=1., color="k"))
+ax.add_line(mlines.Line2D([xp,xp],[yp-0.1*unit,yp+0.1*unit], lw=1., color="k"))
+ax.add_line(mlines.Line2D([xp+unit,xp+unit],[yp-0.1*unit,yp+0.1*unit], lw=1., color="k"))
+ax.text(xp+unit*0.1, yp+unit*0.1, str(int(unit))+'mm', fontsize=8)
+
 # make sure the truss appears in the centre of the image
 ax.axis('equal')
 ax.axis([-unit,maxX+unit,-maxX/1.5,+maxX/1.5])

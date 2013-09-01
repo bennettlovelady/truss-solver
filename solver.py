@@ -12,6 +12,7 @@ step 4: construct the "applied forces" vector P
 step 5: solve the matrix equation C.Q=P, where Q is a list of unknowns
 step 6: find the maximum load
 step 7: draw the bridge and label C/T members
+step 8: build an html page if desired (slightly more presentable)
 '''
 
 import numpy as np
@@ -20,6 +21,7 @@ path = raw_input('input the numbered file in "/straw bridge" containing the .in 
 if path[-1] != '/':
     path = path + '/'
 path = '/home/bennett/Documents/ensc1002/straw bridge/' + path
+html_output = True if raw_input('would you like html output? [y/n] ') == 'y' else False
 
 # ------ step 1 ------
 print "reading input files.. "
@@ -105,20 +107,22 @@ for i in range(1,num+1):
 
 # ------ step 5: solve ------
 print "solving.. "
-fout = open(path+'result.out', 'w')
-
+singular = False
 try:
     Q = np.linalg.solve(C,P)
 except np.linalg.LinAlgError:
     print "singular matrix. using least squares.."
-    fout.write("The system produced a singular matrix.\n\
-                These results were found by least squares approximation.\n")
+    singular = True
     Q = np.linalg.lstsq(C,P)[0]
-    for i in range(len(Q)):
-        if abs(Q[i]) < 0.001:
-            Q[i] = 0.0
+for i in range(len(Q)):
+    if abs(Q[i]) < 0.001:
+        Q[i] = 0.0
 
 print "writing output.. "
+fout = open(path+'result.out', 'w')
+if singular:
+    fout.write("The system produced a singular matrix.\n\
+	        These results were found by least squares approximation.\n")
     
 reactions = ['R'+str(int(supports[0]))+'x',\
          'R'+str(int(supports[1]))+'y',\
@@ -206,7 +210,7 @@ for k in range(members.shape[0]):
 for i in range(joints.shape[0]):
     ax.plot(joints[i,1], joints[i,2], 'ko')
 
-# draw the reaction and load forces
+# draw the reaction and load forces. this gets a bit hairy..
 r = Q.tolist()[-3:]
 for i in range(3):
     xp, yp = joints[supports[i]-1,1], joints[supports[i]-1,2]
@@ -232,5 +236,61 @@ ax.axis([-unit,maxX+unit,-maxX/1.5,+maxX/1.5])
 ax.axis('off')
 fig.savefig(path + 'img.png')
 
+
+# ------ step 8: html page ------
+# so far this is just a repeat of the normal output stage
+def initTable():
+    fout.write('<table>\n\t<colgroup>\n' + \
+                3*'\t\t<col span="1" width="100">\n' + \
+               '\t</colgroup>\n')
+
+if html_output:
+    fout = open(path + 'result.html', 'w')
+    fout.write('<!DOCTYPE html>\n<html>\n<head>\n<title>Results</title>\n</head>\n')
+    fout.write('\n<body>\n')
+    fout.write('<img src="img.png">\n')
+    if singular:
+        fout.write('<p>The system produced a singular matrix.<br>\n\
+	            These results were found by least squares approximation.<br></p>\n\n')
+
+    # table of internal forces
+    fout.write('<p>Internal forces:</p>\n')
+    initTable()
+    for i in range(members.shape[0]):
+        fout.write('\t<tr><td>' + str(i+1) + \
+                   '</td><td>' + state(Q[i]) + \
+                   '</td><td>' + str(round(Q[i],4)) + '</td></tr>\n')
+    for i in range(3):
+        fout.write('\t<tr><td>' + reactions[i] + \
+                   '</td><td>' + '---' + \
+                   '</td><td>' + str(round(Q[members.shape[0]+i],4)) + '</td></tr>\n')
+    fout.write('</table>\n\n<br><br>')
+
+    # maximum forces
+    fout.write('<p>Members under most compression: </p>\n')
+    initTable()
+    for i in maxC_m:
+        fout.write('\t<tr><td>Member ' + str(i+1) + ':' + \
+                   '</td><td>' + \
+                   '</td><td>' + str(maxC) + '</td></tr>\n')
+    fout.write('</table><br><br>\n\n')
+    fout.write('<p>Members under most tension: </p>\n')
+    fout.write('<table>\n\t<colgroup>\n' + \
+                3*'\t\t<col span="1" width="100">\n' + \
+               '\t</colgroup>\n')
+    for i in maxT_m:
+        fout.write('\t<tr><td>Member ' + str(i+1) + ':' + \
+                   '</td><td>' + \
+                   '</td><td>' + str(maxT) + '</td></tr>\n')
+    fout.write('</table><br><br>\n\n')
+
+    # maximum load
+    initTable()
+    fout.write('\t<tr><td>Max load:</td><td></td><td>' + \
+                str(round(maxL,4)) + ' N</td></tr>\n')
+    fout.write('\t<tr><td></td><td></td><td>' + \
+                str(round(maxL/9.81,4)) + ' kg</td></tr>\n')
+
+fout.close()
 
 print "analysis complete!"

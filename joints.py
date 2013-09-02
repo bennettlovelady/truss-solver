@@ -4,12 +4,13 @@ print "this script converts integer joint coordinates to mm"
 print "file format is [joint #] TAB [xpos] TAB [ypos]"
 print "but just use spaces here"
 print "input -1 -1 as the x,y coords to signify end of input"
-path = raw_input("what is the working directory to place joints.in: ")
+path = raw_input("what directory under /straw bridge shall we put joints.in? ")
 
 scale = int(raw_input("enter the unit length in mm: "))
 
 if path[-1]!='/':
     path = path + '/'
+path = '/home/bennett/Documents/ensc1002/straw bridge/' + path
 f = open(path+'joints.in', 'w')
 
 n = 1

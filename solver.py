@@ -1,8 +1,10 @@
 #! /usr/bin/env python
 
 '''
-solves a truss defined by the files joints.in, members.in and supports.in
-returns a file result.out with the resultant forces
+solves a truss defined by the files joints.in, members.in, supports.in and material.in
+returns a file result.out with the internal forces (or an .html)
+
+Copyright (c) 2013 Bennett Lovelady
 
 step 1: read input files joints.in, members.in, supports.in, applied.in.
         begin constructing the relevant tables
@@ -128,8 +130,10 @@ for i in range(1,num+1):
 print "solving.. "
 singular = False
 try:
+    # invert the matrix
     Q = np.linalg.solve(C,P)
 except np.linalg.LinAlgError:
+    # if inversion doesn't work use numerical approximation
     print "singular matrix. using least squares.."
     singular = True
     Q = np.linalg.lstsq(C,P)[0]
@@ -151,7 +155,7 @@ for k in range(members.shape[0]):
         if Q[k] < 0:
             maxL_t[k,1] = material['sf'] * np.pi**2 * material['E'] * material['I'] \
                             / (abs(Q[k]) * members[k,5]**2)
-            # which is the smaller limit
+            # which is the smaller limit?
             maxL_t[k,2] = min(maxL_t[k,0], maxL_t[k,1])
         else:
             maxL_t[k,2] = maxL_t[k,0]
@@ -162,12 +166,13 @@ for k in range(members.shape[0]):
     if maxL_t[k,2] != 0 and maxL_t[k,2] <= maxL:
         maxL = maxL_t[k,2]
 for k in range(members.shape[0]):
-    # to account for f.p. errors. if the member's maxL is within 1% of maxL
+    # to account for floating point errors,
+    # check if the member's maxL is within 1% of maxL
     if np.allclose([maxL_t[k,2]], [maxL], rtol=1e-2):
         maxL_m.append(k)
 
 
-# ------ step 7: results ------
+# ------ step 7: present results ------
 # 
 # abandon all hope, ye who enter
 #
@@ -190,7 +195,7 @@ reactions = ['R'+str(int(supports[0]))+'x',\
              'R'+str(int(supports[2]))+'y']
 coord = ['x', 'y', 'y']
 
-# maximum load as strings
+# maximum load of each member as strings
 maxL_str = ['']*members.shape[0]
 for k in range(members.shape[0]):
     maxL_str[k] = '---' if maxL_t[k,2] == 0 else str(round(maxL_t[k,2],2))
@@ -201,7 +206,7 @@ for i in range(joints.shape[0]):
     if joints[i,1] > maxX:
         maxX = joints[i,1]
 
-# total length of material
+# total length of material used
 sumL = 0
 for k in range(members.shape[0]):
     sumL = sumL + members[k,5]
@@ -257,13 +262,13 @@ for k in range(members.shape[0]):
 for k in range(members.shape[0]):
     i, j = members[k,1], members[k,2]
     ix, iy, jx, jy = joints[i-1,1], joints[i-1,2], joints[j-1,1], joints[j-1,2]
-    ix, iy, jx, jy = ix, iy, jx, jy
     c = "#ff0000" if Q[k]>0 else ("#0000ff" if Q[k]<0 else "#00ff00")
     ax.add_line(mlines.Line2D([ix,jx], [iy,jy], lw=2., color=c))
     mx = (ix+jx)/2
     my = (iy+jy)/2
     ax.text(mx,my,str(int(members[k,0])), fontsize=8)
 
+# now the joints
 for i in range(joints.shape[0]):
     ax.plot(joints[i,1], joints[i,2], 'ko')
 

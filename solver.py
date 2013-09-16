@@ -1,29 +1,27 @@
 #! /usr/bin/env python
 
 '''
-solves a truss defined by the files joints.in, members.in, supports.in and material.in
-returns a file result.out with the internal forces (or an .html)
+A modification of the truss analyser. This one performs simulated annealing to
+attempt to improve the bridge design (purely by moving joint positions, not by
+changing any member connections)
 
 Copyright (c) 2013 Bennett Lovelady
 
-step 1: read input files joints.in, members.in, supports.in, applied.in.
-        begin constructing the relevant tables
-step 2: expand the members table to include dx, dy, L, lij, mij
-step 3: construct a 2nx2n matrix of coefficients C, where n = # joints
-step 4: construct the "applied forces" vector P
-step 5: solve the matrix equation C.Q=P, where Q is a list of unknowns
-step 6: find the maximum load
-step 7: output the results
-step 8: draw the bridge and label C/T members
-step 9: build an html page if desired (more presentable)
+
+step 1: import initial data
+step 2: calculate maximum load as usual, and create a .html page of output
+step 3: if #runs>0, is the max load the same as before? if so, we're done
+        if not, and Lmax is better than before, decrease the anneal amount
+        if not, and Lmax is worse than before, undo the last change and try again
+step 4: iterate over the joints and move them a little, then goto step 2
 '''
 
 import numpy as np
 
-bridgenumber = raw_input('input the numbered file in "/straw bridge" containing the .in files: ')
-inpath = '/home/bennett/Documents/ensc1002/straw bridge/' + bridgenumber + '/'
+bridgenumber = raw_input('input the numbered file in "/anneal" containing the .in files: ')
+inpath = '/home/bennett/Documents/ensc1002/anneal/' + bridgenumber + '/'
 collating = True
-outpath = '/home/bennett/Documents/ensc1002/straw bridge/results/'
+outpath = inpath + 'results/'
 outputname = str(bridgenumber)
 html_output = True
 

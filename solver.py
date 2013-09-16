@@ -80,13 +80,12 @@ for n in range(5):
 for k in range(members.shape[0]):
     i   = members[k,1]
     j   = members[k,2]
-    # get the values
     dx  = joints[j-1,1] - joints[i-1,1]
     dy  = joints[j-1,2] - joints[i-1,2]
     L   = np.sqrt(dx**2 + dy**2)
     lij = dx/L
     mij = dy/L
-    # put them in the table
+    # put the values in the table
     members[k,3], members[k,4], members[k,5], members[k,6], members[k,7]\
         = dx, dy, L, lij, mij
 
@@ -138,6 +137,7 @@ except np.linalg.LinAlgError:
     singular = True
     Q = np.linalg.lstsq(C,P)[0]
 for i in range(len(Q)):
+    # it sometimes gives tiny values like 1e-13, let's get rid of those:
     if abs(Q[i]) < 0.001:
         Q[i] = 0.0
 

@@ -7,13 +7,31 @@ changing any member connections)
 
 Copyright (c) 2013 Bennett Lovelady
 
+pseudocode:
 
-step 1: import initial data
-step 2: calculate maximum load as usual, and create a .html page of output
-step 3: if #runs>0, is the max load the same as before? if so, we're done
-        if not, and Lmax is better than before, decrease the anneal amount
-        if not, and Lmax is worse than before, undo the last change and try again
-step 4: iterate over the joints and move them a little, then goto step 2
+s = s0, e = E(s)
+s_best = s, e_best = e
+k = 0
+while k<k_max && e>e_max:    # i.e. time left && not good enough
+    T = Temperature(k/k_max)
+    s_new = SomeNeighbour(s)
+    e_new = E(s_new)
+    if P(e,e_new,T) > rand():
+        s = s_new, e = e_new
+    if e_new < e_best:
+        s_best = s_new, e_best = e_new
+    k++
+return s_best
+
+E(state) returns the energy of a given state
+Temperature(float) returns a float to represent the cooling temperature
+SomeNeighbour(state) returns a nearby state (e.g. jiggled a bit)
+P(e,e',T) returns probability of moving from s->s' at temp T
+    usually defined as 1 if e'<e, or exp(-(e'-e)/T) otherwise
+Can define restart(): s=s_best, e=e_best to help with cooling
+
+In a truss context the energy is replaced by maximum load which
+is maximised rather than minimised
 '''
 
 import numpy as np

@@ -37,7 +37,7 @@ is maximised rather than minimised
 import numpy as np
 
 bridgenumber = raw_input('input the numbered file in "/anneal" containing the .in files: ')
-inpath = '/home/bennett/Documents/ensc1002/anneal/' + bridgenumber + '/'
+inpath = '/home/bennett/Documents/ensc1002/straw bridge/' + bridgenumber + '/'
 collating = True
 outpath = inpath + 'results/'
 outputname = str(bridgenumber)
@@ -59,22 +59,54 @@ else:
 html_output = True if raw_input('would you like html output? [y/n] ') == 'y' else False
 '''
 
+# ------ some functions for the method of joints ------
 
-# ------ step 1 ------
-print "reading input files.. "
+def ReloadMembersTable():
+    # find the geometric properties of all the members
+    for k in range(members.shape[0]):
+        i   = members[k,1]
+        j   = members[k,2]
+        dx  = joints[j-1,1] - joints[i-1,1]
+        dy  = joints[j-1,2] - joints[i-1,2]
+        L   = np.sqrt(dx**2 + dy**2)
+        lij = dx/L
+        mij = dy/L
+        members[k,3], members[k,4], members[k,5], members[k,6], members[k,7]\
+            = dx, dy, L, lij, mij
 
+def ConstructCoefficientMatrix():
+    n = joints.shape[0] 
+    C = np.zeros((2*n,2*n))
+    for k in range(members.shape[0]):
+        i   = members[k,1]
+        j   = members[k,2]
+        lij = members[k,6]
+        mij = members[k,7]    
+        C[2*i-2, k] = lij
+        C[2*i-1, k] = mij
+        C[2*j-2, k] = -lij
+        C[2*j-1, k] = -mij
+    # now add the coefficients for the reaction forces:
+    C[2*supports[0]-2, 2*n-3] = 1
+    C[2*supports[1]-1, 2*n-2] = 1
+    C[2*supports[2]-1, 2*n-1] = 1
+    return C
+
+
+# ------ initial data ------
+
+# joints
 with open(inpath+'joints.in','r') as fin:
     joints = np.genfromtxt(fin, comments="#", delimiter="\t")
 
-with open(inpath+'members.in', 'r') as fin:
-    members = np.genfromtxt(fin, comments="#", delimiter="\t")
-
+# supports and applied forces
 with open(inpath+'supports.in', 'r') as fin:
     supports = np.genfromtxt(fin, comments="#")
 
 with open(inpath+'applied.in','r') as fin:
     applied = np.genfromtxt(fin, comments="#", delimiter="\t")
 
+# material properties
 material = {}
 with open(inpath+'material.in', 'r') as fin:
     for line in fin:
@@ -84,56 +116,19 @@ with open(inpath+'material.in', 'r') as fin:
                 (key, value) = spl 
                 material[key] = float(value)
 
-
-# ------ step 2 ------
-print "constructing matrices.. "
-
-zeroes = [[0]]*members.shape[0]
+# members
+with open(inpath+'members.in', 'r') as fin:
+    members = np.genfromtxt(fin, comments="#", delimiter="\t")
 for n in range(5):
-    members = np.concatenate((members, zeroes), 1)
+    members = np.concatenate((members, [[0]]*members.shape[0]), 1)
 # members table now has five extra columns (empty)
+ReloadMembersTable()
 
-for k in range(members.shape[0]):
-    i   = members[k,1]
-    j   = members[k,2]
-    dx  = joints[j-1,1] - joints[i-1,1]
-    dy  = joints[j-1,2] - joints[i-1,2]
-    L   = np.sqrt(dx**2 + dy**2)
-    lij = dx/L
-    mij = dy/L
-    # put the values in the table
-    members[k,3], members[k,4], members[k,5], members[k,6], members[k,7]\
-        = dx, dy, L, lij, mij
-
-# the members table is now fully populated with lij, mij
-
-
-# ------ step 3: construct C ------
-n = joints.shape[0] 
-C = np.zeros((2*n,2*n))
-for k in range(members.shape[0]):
-    i   = members[k,1]
-    j   = members[k,2]
-    lij = members[k,6]
-    mij = members[k,7]    
-    C[2*i-2, k] = lij
-    C[2*i-1, k] = mij
-    C[2*j-2, k] = -lij
-    C[2*j-1, k] = -mij
-
-# now add the coefficients for the reaction forces:
-C[2*supports[0]-2, 2*n-3] = 1
-C[2*supports[1]-1, 2*n-2] = 1
-C[2*supports[2]-1, 2*n-1] = 1
-# C is complete!
-
-'''
-with open(inpath+'C.mat', 'w') as fout:
-    np.savetxt(fout, C, fmt='%.3f', delimiter='\t')
-'''
+C = ConstructCoefficientMatrix()
 
 
 # ------ step 4: construct P ------
+n = joints.shape[0]
 P = np.zeros(2*n)
 num = applied.shape[0]-1
 for i in range(1,num+1):

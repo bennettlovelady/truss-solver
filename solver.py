@@ -59,7 +59,7 @@ else:
 html_output = True if raw_input('would you like html output? [y/n] ') == 'y' else False
 '''
 
-# ------ some functions for the method of joints ------
+# ------ some functions for analysis ------
 
 def ReloadMembersTable():
     # find the geometric properties of all the members
@@ -96,6 +96,7 @@ def ConstructCoefficientMatrix():
 
 def SolveTruss(C, P):
     print "solving... "
+    singular = False
     try:
         # invert the matrix
         Q = np.linalg.solve(C,P)
@@ -141,7 +142,104 @@ def FindMaxLoad():
     return maxL, maxL_m
 
 
-# ------ initial data ------
+# ------ functions for output ------
+
+
+def TensionState(x):
+    if (x<0):
+        return 'comp.'
+    elif (x>0):
+        return 'tens.'
+    else:
+        return ''
+
+
+def OutputPlaintext():
+    fout = open(outpath + outputname + '.out', 'w')
+    if singular:
+        fout.write("The system produced a singular matrix.\n\
+	            These results were found by least squares approximation.\n")
+    # output a table of all members' internal forces
+    fout.write('mem. #\tstate\tforce/L\tmax load/N\n')
+    for k in range(members.shape[0]):
+        fout.write(str(k+1) + '\t' + TensionState(Q[k]) + \
+                   '\t' + str(Q[k]) + '\t' + maxL_str[k] + '\n')
+    for i in range(3):
+        fout.write(reactions[i] + '\t\t' + str(Q[members.shape[0]+i]) + '\n')
+    fout.write('\n')
+    fout.write('max load:\t' + str(maxL) + ' N\n')
+    fout.write('\t\t' + str(maxL/9.81) + ' kg\n\n')
+    fout.write('weakest members:\t')
+    for k in range(len(maxL_m)):
+        fout.write(str(maxL_m[k]+1))
+        if k != len(maxL_m)-1:
+            fout.write(', ')
+        else:
+            fout.write('\n\n')
+    # now the bridge length and total length of all members
+    fout.write('bridge length:\t' + str(int(maxX)) + 'mm\n')
+    fout.write('total material:\t' + str(int(sumL)) + 'mm\n')
+    fout.close()
+
+
+def initTable(n):
+    fout.write('<table>\n\t<colgroup>\n' + \
+                n*'\t\t<col span="1" width="100">\n' + \
+               '\t</colgroup>\n')
+
+
+def OutputHTML():
+    fout = open(outpath + outputname + '.html', 'w')
+    fout.write('<!DOCTYPE html>\n<html>\n<head>\n<title>Results</title>\n</head>\n')
+    fout.write('\n<body>\n')
+    fout.write('<img src="' + outputname + '.png">\n')
+    if singular:
+        fout.write('<p>The system produced a singular matrix.<br>\n' + \
+	           'These results were found by least squares approximation.<br></p>\n\n')
+
+    # table of internal forces
+    fout.write('<p>Internal forces:</p>\n')
+    initTable(4)
+    fout.write('\t<tr><td>Member #</td><td>State</td>' + \
+               '<td>Force/Load</td><td>Max Load/N</td></tr>\n')
+    for k in range(members.shape[0]):
+        fout.write('\t<tr><td>' + str(k+1) + \
+                   '</td><td>' + TensionState(Q[k]) + \
+                   '</td><td>' + str(round(Q[k],4)) + \
+                   '</td><td>' + maxL_str[k] + '</td></tr>\n')
+    for i in range(3):
+        fout.write('\t<tr><td>' + reactions[i] + \
+                   '</td><td>' + '---' + \
+                   '</td><td>' + str(round(Q[i-3],4)) + '</td><td></td></tr>\n')
+    fout.write('</table>\n\n<br><br>')
+
+    # weakest members
+    fout.write('<p>Weakest members: </p>')
+    initTable(3)
+    fout.write('\t<tr><td>Member</td><td></td><td>Max Load / N</td></tr>\n')
+    for i in range(len(maxL_m)):
+        fout.write('\t<tr><td>Member ' + str(maxL_m[i]+1) + ':' + \
+                   '</td><td>' + \
+                   '</td><td>' + maxL_str[maxL_m[i]] + '</td></tr>\n')
+    fout.write('</table><br><br>\n\n')
+
+    # maximum load, bridge length and material used
+    initTable(3)
+    fout.write('\t<tr><td>Max load:</td><td></td><td>' + \
+                str(round(maxL,4)) + ' N</td></tr>\n')
+    fout.write('\t<tr><td></td><td></td><td>' + \
+                str(round(maxL/9.81,4)) + ' kg</td></tr>\n')
+    fout.write('\t<tr><td> </td></tr>\n')
+    fout.write('\t<tr><td>Bridge length:</td><td></td><td>' + \
+                str(int(maxX)) + 'mm</td></tr>\n')
+    fout.write('\t<tr><td>Material used:</td><td></td><td>' + \
+                str(int(sumL)) + 'mm</td></tr>\n')
+    fout.write('</table><br><br>\n\n')
+    fout.close()
+
+
+
+# ------ load initial data ------
 
 # material properties
 material = {}
@@ -160,6 +258,10 @@ with open(inpath+'joints.in','r') as fin:
 # supports 
 with open(inpath+'supports.in', 'r') as fin:
     supports = np.genfromtxt(fin, comments="#")
+reactions = ['R'+str(int(supports[0]))+'x',\
+             'R'+str(int(supports[1]))+'y',\
+             'R'+str(int(supports[2]))+'y']
+coord = ['x', 'y', 'y']
 
 # applied forces
 with open(inpath+'applied.in','r') as fin:
@@ -186,33 +288,20 @@ singular, Q = SolveTruss(C, P)
 
 maxL, maxL_m = FindMaxLoad()
 
+
+
 # ------ present results ------
 # 
 # abandon all hope, ye who enter
 #
 # -----------------------------
-print "writing output.. "
 
 # some things used by both regular and html output sections:
-# tension or compression?
-def state(x):
-    if (x<0):
-        return 'comp.'
-    elif (x>0):
-        return 'tens.'
-    else:
-        return ''
-    
-# reaction force names
-reactions = ['R'+str(int(supports[0]))+'x',\
-             'R'+str(int(supports[1]))+'y',\
-             'R'+str(int(supports[2]))+'y']
-coord = ['x', 'y', 'y']
-
 # maximum load of each member as strings
 maxL_str = ['']*members.shape[0]
 for k in range(members.shape[0]):
-    maxL_str[k] = '---' if maxL_t[k,2] == 0 else str(round(maxL_t[k,2],2))
+    m = members[k,10]
+    maxL_str[k] = '---' if m == 0 else str(round(m,2))
 
 # maximum x-coord => bridge length
 maxX = 0
@@ -227,39 +316,10 @@ for k in range(members.shape[0]):
 
 # regular, unformatted .out output
 if not html_output:
-    fout = open(outpath + outputname + '.out', 'w')
-    if singular:
-        fout.write("The system produced a singular matrix.\n\
-	            These results were found by least squares approximation.\n")
-
-    # output a table of all members' internal forces
-    fout.write('mem. #\tstate\tforce/L\tmax load/N\n')
-    for k in range(members.shape[0]):
-        fout.write(str(k+1) + '\t' + state(Q[k]) + \
-                   '\t' + str(Q[k]) + '\t' + maxL_str[k] + '\n')
-    for i in range(3):
-        fout.write(reactions[i] + '\t\t' + str(Q[members.shape[0]+i]) + '\n')
-    fout.write('\n')
-
-    fout.write('max load:\t' + str(maxL) + ' N\n')
-    fout.write('\t\t' + str(maxL/9.81) + ' kg\n\n')
-
-    fout.write('weakest members:\t')
-    for k in range(len(maxL_m)):
-        fout.write(str(maxL_m[k]+1))
-        if k != len(maxL_m)-1:
-            fout.write(', ')
-        else:
-            fout.write('\n\n')
-
-    # now the bridge length and total length of all members
-    fout.write('bridge length:\t' + str(int(maxX)) + 'mm\n')
-    fout.write('total material:\t' + str(int(sumL)) + 'mm\n')
-
-    fout.close()
+    OutputPlaintext()
 
 
-# ------ step 8: draw the bridge ------
+# ------ draw the bridge ------
 import matplotlib.pyplot as plt
 import matplotlib.lines as mlines
 import matplotlib.text as text
@@ -321,61 +381,9 @@ ax.axis('off')
 fig.savefig(outpath + outputname + '.png')
 
 
-# ------ step 9: html page ------
-# so far this is just a repeat of the normal output stage
-def initTable(n):
-    fout.write('<table>\n\t<colgroup>\n' + \
-                n*'\t\t<col span="1" width="100">\n' + \
-               '\t</colgroup>\n')
-
+# ------ html page ------
 if html_output:
-    fout = open(outpath + outputname + '.html', 'w')
-    fout.write('<!DOCTYPE html>\n<html>\n<head>\n<title>Results</title>\n</head>\n')
-    fout.write('\n<body>\n')
-    fout.write('<img src="' + outputname + '.png">\n')
-    if singular:
-        fout.write('<p>The system produced a singular matrix.<br>\n' + \
-	           'These results were found by least squares approximation.<br></p>\n\n')
+    OutputHTML()
 
-    # table of internal forces
-    fout.write('<p>Internal forces:</p>\n')
-    initTable(4)
-    fout.write('\t<tr><td>Member #</td><td>State</td>' + \
-               '<td>Force/Load</td><td>Max Load/N</td></tr>\n')
-    for k in range(members.shape[0]):
-        fout.write('\t<tr><td>' + str(k+1) + \
-                   '</td><td>' + state(Q[k]) + \
-                   '</td><td>' + str(round(Q[k],4)) + \
-                   '</td><td>' + maxL_str[k] + '</td></tr>\n')
-    for i in range(3):
-        fout.write('\t<tr><td>' + reactions[i] + \
-                   '</td><td>' + '---' + \
-                   '</td><td>' + str(round(Q[i-3],4)) + '</td><td></td></tr>\n')
-    fout.write('</table>\n\n<br><br>')
-
-    # weakest members
-    fout.write('<p>Weakest members: </p>')
-    initTable(3)
-    fout.write('\t<tr><td>Member</td><td></td><td>Max Load / N</td></tr>\n')
-    for i in range(len(maxL_m)):
-        fout.write('\t<tr><td>Member ' + str(maxL_m[i]+1) + ':' + \
-                   '</td><td>' + \
-                   '</td><td>' + maxL_str[maxL_m[i]] + '</td></tr>\n')
-    fout.write('</table><br><br>\n\n')
-
-    # maximum load, bridge length and material used
-    initTable(3)
-    fout.write('\t<tr><td>Max load:</td><td></td><td>' + \
-                str(round(maxL,4)) + ' N</td></tr>\n')
-    fout.write('\t<tr><td></td><td></td><td>' + \
-                str(round(maxL/9.81,4)) + ' kg</td></tr>\n')
-    fout.write('\t<tr><td> </td></tr>\n')
-    fout.write('\t<tr><td>Bridge length:</td><td></td><td>' + \
-                str(int(maxX)) + 'mm</td></tr>\n')
-    fout.write('\t<tr><td>Material used:</td><td></td><td>' + \
-                str(int(sumL)) + 'mm</td></tr>\n')
-    fout.write('</table><br><br>\n\n')
-
-fout.close()
 
 print "analysis complete!"

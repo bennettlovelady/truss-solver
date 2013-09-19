@@ -74,6 +74,7 @@ def ReloadMembersTable():
         members[k,3], members[k,4], members[k,5], members[k,6], members[k,7]\
             = dx, dy, L, lij, mij
 
+
 def ConstructCoefficientMatrix():
     n = joints.shape[0] 
     C = np.zeros((2*n,2*n))
@@ -93,18 +94,54 @@ def ConstructCoefficientMatrix():
     return C
 
 
+def SolveTruss(C, P):
+    print "solving... "
+    try:
+        # invert the matrix
+        Q = np.linalg.solve(C,P)
+    except np.linalg.LinAlgError:
+        # if inversion doesn't work use numerical approximation
+        print "singular matrix. using least squares.."
+        singular = True
+        Q = np.linalg.lstsq(C,P)[0]
+    for i in range(len(Q)):
+        # it sometimes gives tiny values like 1e-13, let's get rid of those:
+        if abs(Q[i]) < 0.001:
+            Q[i] = 0.0
+    return singular, Q
+
+
+def FindMaxLoad():
+    # use the material properties in materials.in to find the safe load
+    # go through every member and calculate its maximum safe load
+    for k in range(members.shape[0]):
+        if Q[k] != 0:
+            # yield: F/A <= s.f * s_y
+            L_yield = material['sf'] * material['s_y'] * material['A'] / abs(Q[k])
+            members[k,8] = L_yield
+            # buckling: F <= s.f * pi^2 * E * I / l^2
+            if Q[k] < 0:
+                members[k,9] = material['sf'] * np.pi**2 * material['E'] * material['I'] \
+                                / (abs(Q[k]) * members[k,5]**2)
+                # which is the smaller limit?
+                members[k,10] = min(members[k,8], members[k,9])
+            else:
+                members[k,10] = members[k,8]
+    maxL = 1e6
+    for k in range(members.shape[0]):
+        m = members[k,10]
+        if m != 0 and m <= maxL:
+            maxL = m
+    maxL_m = []
+    for k in range(members.shape[0]):
+        # to account for floating point errors,
+        # check if the member's maxL is within 1% of maxL
+        if np.allclose([members[k,10]], [maxL], rtol=1e-2):
+            maxL_m.append(k)
+    return maxL, maxL_m
+
+
 # ------ initial data ------
-
-# joints
-with open(inpath+'joints.in','r') as fin:
-    joints = np.genfromtxt(fin, comments="#", delimiter="\t")
-
-# supports and applied forces
-with open(inpath+'supports.in', 'r') as fin:
-    supports = np.genfromtxt(fin, comments="#")
-
-with open(inpath+'applied.in','r') as fin:
-    applied = np.genfromtxt(fin, comments="#", delimiter="\t")
 
 # material properties
 material = {}
@@ -116,18 +153,17 @@ with open(inpath+'material.in', 'r') as fin:
                 (key, value) = spl 
                 material[key] = float(value)
 
-# members
-with open(inpath+'members.in', 'r') as fin:
-    members = np.genfromtxt(fin, comments="#", delimiter="\t")
-for n in range(5):
-    members = np.concatenate((members, [[0]]*members.shape[0]), 1)
-# members table now has five extra columns (empty)
-ReloadMembersTable()
+# joints
+with open(inpath+'joints.in','r') as fin:
+    joints = np.genfromtxt(fin, comments="#", delimiter="\t")
 
-C = ConstructCoefficientMatrix()
+# supports 
+with open(inpath+'supports.in', 'r') as fin:
+    supports = np.genfromtxt(fin, comments="#")
 
-
-# ------ step 4: construct P ------
+# applied forces
+with open(inpath+'applied.in','r') as fin:
+    applied = np.genfromtxt(fin, comments="#", delimiter="\t")
 n = joints.shape[0]
 P = np.zeros(2*n)
 num = applied.shape[0]-1
@@ -135,55 +171,22 @@ for i in range(1,num+1):
     P[2*applied[i,0]-2] = -applied[i,1]
     P[2*applied[i,0]-1] = -applied[i,2]
 
+# members
+with open(inpath+'members.in', 'r') as fin:
+    members = np.genfromtxt(fin, comments="#", delimiter="\t")
+for n in range(8):
+    members = np.concatenate((members, [[0]]*members.shape[0]), 1)
+# members table now has five extra columns (for geometric data) 
+# and three more for max load results
+ReloadMembersTable()
 
-# ------ step 5: solve ------
-print "solving.. "
-singular = False
-try:
-    # invert the matrix
-    Q = np.linalg.solve(C,P)
-except np.linalg.LinAlgError:
-    # if inversion doesn't work use numerical approximation
-    print "singular matrix. using least squares.."
-    singular = True
-    Q = np.linalg.lstsq(C,P)[0]
-for i in range(len(Q)):
-    # it sometimes gives tiny values like 1e-13, let's get rid of those:
-    if abs(Q[i]) < 0.001:
-        Q[i] = 0.0
+C = ConstructCoefficientMatrix()
 
+singular, Q = SolveTruss(C, P) 
 
-# ------ step 6: find the maximum load ------
-# use the material properties in materials.in to find the safe load
-# go through every member and calculate its maximum safe load
+maxL, maxL_m = FindMaxLoad()
 
-maxL_t = np.zeros([members.shape[0],3])
-for k in range(members.shape[0]):
-    if Q[k] != 0:
-        # yield: F/A <= s.f * s_y
-        maxL_t[k,0] = material['sf'] * material['s_y'] * material['A'] / abs(Q[k])
-        # buckling: F <= s.f * pi^2 * E * I / l^2
-        if Q[k] < 0:
-            maxL_t[k,1] = material['sf'] * np.pi**2 * material['E'] * material['I'] \
-                            / (abs(Q[k]) * members[k,5]**2)
-            # which is the smaller limit?
-            maxL_t[k,2] = min(maxL_t[k,0], maxL_t[k,1])
-        else:
-            maxL_t[k,2] = maxL_t[k,0]
-
-maxL = 1000000
-maxL_m = []
-for k in range(members.shape[0]):
-    if maxL_t[k,2] != 0 and maxL_t[k,2] <= maxL:
-        maxL = maxL_t[k,2]
-for k in range(members.shape[0]):
-    # to account for floating point errors,
-    # check if the member's maxL is within 1% of maxL
-    if np.allclose([maxL_t[k,2]], [maxL], rtol=1e-2):
-        maxL_m.append(k)
-
-
-# ------ step 7: present results ------
+# ------ present results ------
 # 
 # abandon all hope, ye who enter
 #

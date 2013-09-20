@@ -37,27 +37,32 @@ is maximised rather than minimised
 import numpy as np
 
 bridgenumber = raw_input('input the numbered file in "/anneal" containing the .in files: ')
-inpath = '/home/bennett/Documents/ensc1002/straw bridge/' + bridgenumber + '/'
+inpath = '/home/bennett/Documents/ensc1002/anneal/' + bridgenumber + '/'
 collating = True
 outpath = inpath + 'results/'
 outputname = str(bridgenumber)
 html_output = True
 
-# uncomment this section to choose the output format/directory
-'''
-collating = True if raw_input('would you like to file these nicely? ') == 'y' else False
 
-if collating:
-    outpath = raw_input('input the output directory: ')
-    if outpath[-1] != '/':
-        outpath = outpath + '/'
-    outputname = raw_input('what would you like to call these results? ')
-else:
-    outpath = inpath
-    outputname = 'result'
-
-html_output = True if raw_input('would you like html output? [y/n] ') == 'y' else False
 '''
+joints: 
+[joint #] [x coord (mm)] [y coord (mm)] [degree of freedom]
+
+memers:
+[member #] [joint i] [joint j] [dx] [dy] [L] [lij] [mij] [maxL_y] [maxL_b] [maxL]
+
+supports:
+[joint # with x-reaction]
+[joint # with y-reaction]
+[joint # with y-reaction]
+
+applied:
+[joint #] [F_x] [F_y]
+
+material:
+list of material properties accessed from a dictionary
+'''
+
 
 # ------ some functions for analysis ------
 
@@ -142,9 +147,39 @@ def FindMaxLoad():
     return maxL, maxL_m
 
 
+# ------ functions for annealing ------
+
+
+def Temperature(k, kmax):
+    return k/kmax
+
+
+def Prob(load1, load2, temp):
+    if load2 > load1:
+        return 1.0
+    else:
+        return np.exp(-(load1-load2)/temp)
+
+
+def Jiggle(jin):
+    # takes a "joints" structure and jiggles them a bit
+    # dof is 0,1,2,3 = none, l/r, u/d, u/d/l/r movement allowed
+    mag = 2.0
+    jout = jin
+    for i in range(jout.shape[0]):
+        dof = jout[i,3]
+        dx, dy = np.random.random(), np.random.random()
+        dx, dy = dx*2-1, dy*2-1
+        if dof in [1,3]:
+            jout[i,1] = jout[i,1] + dx*mag
+        if dof in [2,3]:
+            jout[i,2] = jout[i,2] + dy*mag
+    return jout
+        
+
 # ------ functions for output ------
-
-
+# some things used by both regular and html output sections:
+# tension as a string
 def TensionState(x):
     if (x<0):
         return 'comp.'
@@ -153,8 +188,31 @@ def TensionState(x):
     else:
         return ''
 
+# maximum load of each member as strings
+def MaxLStrings():
+    maxL_str = ['']*members.shape[0]
+    for k in range(members.shape[0]):
+        m = members[k,10]
+        maxL_str[k] = '---' if m == 0 else str(round(m,2))
+    return maxL_str
+
+# maximum x-coord => bridge length
+def TrussLength():
+    maxX = 0
+    for i in range(joints.shape[0]):
+        if joints[i,1] > maxX:
+            maxX = joints[i,1]
+    return maxX
+
+# total length of material used
+def TotalMaterial():
+    sumL = 0
+    for k in range(members.shape[0]):
+        sumL = sumL + members[k,5]
+    return sumL
 
 def OutputPlaintext():
+    maxL_str = MaxLStrings()
     fout = open(outpath + outputname + '.out', 'w')
     if singular:
         fout.write("The system produced a singular matrix.\n\
@@ -177,29 +235,30 @@ def OutputPlaintext():
         else:
             fout.write('\n\n')
     # now the bridge length and total length of all members
-    fout.write('bridge length:\t' + str(int(maxX)) + 'mm\n')
-    fout.write('total material:\t' + str(int(sumL)) + 'mm\n')
+    fout.write('bridge length:\t' + str(int(TrussLength())) + 'mm\n')
+    fout.write('total material:\t' + str(int(TotalMaterial())) + 'mm\n')
     fout.close()
 
 
-def initTable(n):
+def initTable(fout,n):
     fout.write('<table>\n\t<colgroup>\n' + \
                 n*'\t\t<col span="1" width="100">\n' + \
                '\t</colgroup>\n')
 
 
-def OutputHTML():
-    fout = open(outpath + outputname + '.html', 'w')
+def OutputHTML(filenumber):
+    maxL_str = MaxLStrings()
+    fout = open(outpath + outputname + '.' + str(filenumber) + '.html', 'w')
     fout.write('<!DOCTYPE html>\n<html>\n<head>\n<title>Results</title>\n</head>\n')
     fout.write('\n<body>\n')
-    fout.write('<img src="' + outputname + '.png">\n')
+    fout.write('<img src="' + outputname + '.' + str(filenumber) + '.png">\n')
     if singular:
         fout.write('<p>The system produced a singular matrix.<br>\n' + \
 	           'These results were found by least squares approximation.<br></p>\n\n')
 
     # table of internal forces
     fout.write('<p>Internal forces:</p>\n')
-    initTable(4)
+    initTable(fout,4)
     fout.write('\t<tr><td>Member #</td><td>State</td>' + \
                '<td>Force/Load</td><td>Max Load/N</td></tr>\n')
     for k in range(members.shape[0]):
@@ -215,7 +274,7 @@ def OutputHTML():
 
     # weakest members
     fout.write('<p>Weakest members: </p>')
-    initTable(3)
+    initTable(fout,3)
     fout.write('\t<tr><td>Member</td><td></td><td>Max Load / N</td></tr>\n')
     for i in range(len(maxL_m)):
         fout.write('\t<tr><td>Member ' + str(maxL_m[i]+1) + ':' + \
@@ -224,21 +283,21 @@ def OutputHTML():
     fout.write('</table><br><br>\n\n')
 
     # maximum load, bridge length and material used
-    initTable(3)
+    initTable(fout,3)
     fout.write('\t<tr><td>Max load:</td><td></td><td>' + \
                 str(round(maxL,4)) + ' N</td></tr>\n')
     fout.write('\t<tr><td></td><td></td><td>' + \
                 str(round(maxL/9.81,4)) + ' kg</td></tr>\n')
     fout.write('\t<tr><td> </td></tr>\n')
     fout.write('\t<tr><td>Bridge length:</td><td></td><td>' + \
-                str(int(maxX)) + 'mm</td></tr>\n')
+                str(int(TrussLength())) + 'mm</td></tr>\n')
     fout.write('\t<tr><td>Material used:</td><td></td><td>' + \
-                str(int(sumL)) + 'mm</td></tr>\n')
+                str(int(TotalMaterial())) + 'mm</td></tr>\n')
     fout.write('</table><br><br>\n\n')
     fout.close()
 
 
-def Draw():
+def Draw(filenumber):
     import matplotlib.pyplot as plt
     import matplotlib.lines as mlines
     import matplotlib.text as text
@@ -249,6 +308,7 @@ def Draw():
     for k in range(members.shape[0]):
         if members[k,5] < unit:
             unit = members[k,5]
+    maxX = TrussLength()
 
     # draw the members first
     for k in range(members.shape[0]):
@@ -293,7 +353,7 @@ def Draw():
     ax.axis('equal')
     ax.axis([-unit,maxX+unit,-maxX/1.5,+maxX/1.5])
     ax.axis('off')
-    fig.savefig(outpath + outputname + '.png')
+    fig.savefig(outpath + outputname + '.' + str(filenumber) + '.png')
 
 
 
@@ -340,42 +400,47 @@ for n in range(8):
 # and three more for max load results
 ReloadMembersTable()
 
+
+# ------ initial calculation ------
 C = ConstructCoefficientMatrix()
-
 singular, Q = SolveTruss(C, P) 
-
 maxL, maxL_m = FindMaxLoad()
+OutputHTML(0)
+Draw(0)
 
 
+# ------ data is loaded, begin annealing ------
+iterations = 0.0
+maxiterations = 200.0
+maxL_best = 0.0
 
-# ------ present results ------
-# 
-# abandon all hope, ye who enter
-#
-# -----------------------------
+while iterations < maxiterations:
+    joints_old = joints
+    maxL_old = maxL
+    print maxL
+    joints = Jiggle(joints)
+    ReloadMembersTable()
+    C = ConstructCoefficientMatrix()
+    singular, Q = SolveTruss(C, P)
+    maxL, maxL_m = FindMaxLoad()
+    if maxL > maxL_best:
+        joints_best = joints
+        maxL_best = maxL
+    T = Temperature(iterations, maxiterations)
+    if Prob(maxL_old, maxL, T) > 0.5:#np.random.random():
+        # good stuff, continue
+        a = 3
+    else:
+        joints = joints_old
+        maxL = maxL_old
+    iterations = iterations + 1
 
-# some things used by both regular and html output sections:
-# maximum load of each member as strings
-maxL_str = ['']*members.shape[0]
-for k in range(members.shape[0]):
-    m = members[k,10]
-    maxL_str[k] = '---' if m == 0 else str(round(m,2))
 
-# maximum x-coord => bridge length
-maxX = 0
-for i in range(joints.shape[0]):
-    if joints[i,1] > maxX:
-        maxX = joints[i,1]
-
-# total length of material used
-sumL = 0
-for k in range(members.shape[0]):
-    sumL = sumL + members[k,5]
-
+# ------ write the output ------
 
 if html_output:
-    OutputHTML()
-    Draw()
+    OutputHTML(iterations)
+    Draw(iterations)
 else:
     OutputPlaintext()
 

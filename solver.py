@@ -100,7 +100,6 @@ def ConstructCoefficientMatrix():
 
 
 def SolveTruss(C, P):
-    print "solving... "
     singular = False
     try:
         # invert the matrix
@@ -151,8 +150,10 @@ def FindMaxLoad():
 
 
 def Temperature(k, kmax):
-    return k/kmax
-
+    t1 = 1-k/kmax
+    t2 = np.exp(-k/kmax)
+    t3 = np.exp(-k*k/kmax)
+    return t3
 
 def Prob(load1, load2, temp):
     if load2 > load1:
@@ -164,7 +165,7 @@ def Prob(load1, load2, temp):
 def Jiggle(jin):
     # takes a "joints" structure and jiggles them a bit
     # dof is 0,1,2,3 = none, l/r, u/d, u/d/l/r movement allowed
-    mag = 2.0
+    mag = 1.0
     jout = jin
     for i in range(jout.shape[0]):
         dof = jout[i,3]
@@ -411,13 +412,14 @@ Draw(0)
 
 # ------ data is loaded, begin annealing ------
 iterations = 0.0
-maxiterations = 200.0
+maxiterations = 2000.0
 maxL_best = 0.0
+f = open(outpath + outputname + '.maxL.out','w')
+
 
 while iterations < maxiterations:
     joints_old = joints
     maxL_old = maxL
-    print maxL
     joints = Jiggle(joints)
     ReloadMembersTable()
     C = ConstructCoefficientMatrix()
@@ -427,13 +429,15 @@ while iterations < maxiterations:
         joints_best = joints
         maxL_best = maxL
     T = Temperature(iterations, maxiterations)
-    if Prob(maxL_old, maxL, T) > 0.5:#np.random.random():
+    if Prob(maxL_old, maxL, T) > np.random.random():
         # good stuff, continue
-        a = 3
+        f.write(str(maxL) + '\t..keep\n')
     else:
+        f.write(str(maxL) + '\t..toss\n')
         joints = joints_old
         maxL = maxL_old
     iterations = iterations + 1
+f.close()
 
 
 # ------ write the output ------

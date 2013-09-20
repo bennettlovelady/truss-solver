@@ -238,6 +238,64 @@ def OutputHTML():
     fout.close()
 
 
+def Draw():
+    import matplotlib.pyplot as plt
+    import matplotlib.lines as mlines
+    import matplotlib.text as text
+    fig = plt.figure()
+    ax = fig.add_subplot(1,1,1)
+    # find the unit length to use as padding
+    unit = 1000000
+    for k in range(members.shape[0]):
+        if members[k,5] < unit:
+            unit = members[k,5]
+
+    # draw the members first
+    for k in range(members.shape[0]):
+        i, j = members[k,1], members[k,2]
+        ix, iy, jx, jy = joints[i-1,1], joints[i-1,2], joints[j-1,1], joints[j-1,2]
+        c = "#ff0000" if Q[k]>0 else ("#0000ff" if Q[k]<0 else "#00ff00")
+        ax.add_line(mlines.Line2D([ix,jx], [iy,jy], lw=2., color=c))
+        mx = (ix+jx)/2
+        my = (iy+jy)/2
+        ax.text(mx,my,str(int(members[k,0])), fontsize=8)
+
+    # now the joints
+    for i in range(joints.shape[0]):
+        ax.plot(joints[i,1], joints[i,2], 'ko')
+
+    # draw the reaction and load forces. this gets a bit hairy..
+    r = Q.tolist()[-3:]
+    for i in range(3):
+        xp, yp = joints[supports[i]-1,1], joints[supports[i]-1,2]
+        axis = [1,0] if i == 0 else [0,1]
+        axis = [axis[0]*unit*1.2, axis[1]*unit]
+        ax.arrow(xp-axis[0],yp-axis[1],axis[0]*0.6,axis[1]*0.6,\
+                 fc='k', ec='k', head_width=unit*0.15, head_length=unit*0.25)
+        ax.text(xp-axis[0]+unit*0.1, yp-axis[1]+unit*0.1, reactions[i], fontsize=8)
+    num = applied.shape[0]-1
+    for i in range(1,num+1):
+        xp, yp = joints[applied[i,0]-1,1], joints[applied[i,0]-1,2]
+        lx, ly = applied[i,1], applied[i,2]
+        mag = np.sqrt(lx**2 + ly**2)
+        lx, ly = lx/mag, ly/mag
+        ax.arrow(xp+lx*unit*0.2, yp+ly*unit*0.2, lx*unit*0.75, ly*unit*0.75,\
+                 fc='k', ec='k', head_width=unit*0.15, head_length=unit*0.25)
+        ax.text(xp+(lx*1.5)*unit, yp+(ly*1.5)*unit, 'Load', fontsize=8)
+    # draw a scale in the lower left
+    xp = (joints[supports[0]-1,1] + joints[applied[1,0]-1,1])/2 - unit
+    yp = joints[supports[0]-1,2] - unit*1.5
+    ax.add_line(mlines.Line2D([xp,xp+unit],[yp,yp], lw=1., color="k"))
+    ax.add_line(mlines.Line2D([xp,xp],[yp-0.1*unit,yp+0.1*unit], lw=1., color="k"))
+    ax.add_line(mlines.Line2D([xp+unit,xp+unit],[yp-0.1*unit,yp+0.1*unit], lw=1., color="k"))
+    ax.text(xp+unit*0.1, yp+unit*0.1, str(int(unit))+'mm', fontsize=8)
+    # make sure the truss appears in the centre of the image
+    ax.axis('equal')
+    ax.axis([-unit,maxX+unit,-maxX/1.5,+maxX/1.5])
+    ax.axis('off')
+    fig.savefig(outpath + outputname + '.png')
+
+
 
 # ------ load initial data ------
 
@@ -314,76 +372,12 @@ sumL = 0
 for k in range(members.shape[0]):
     sumL = sumL + members[k,5]
 
-# regular, unformatted .out output
-if not html_output:
-    OutputPlaintext()
 
-
-# ------ draw the bridge ------
-import matplotlib.pyplot as plt
-import matplotlib.lines as mlines
-import matplotlib.text as text
-fig = plt.figure()
-ax = fig.add_subplot(1,1,1)
-
-# find the unit length to use as padding
-unit = 1000000
-for k in range(members.shape[0]):
-    if members[k,5] < unit:
-        unit = members[k,5]
-
-# draw the members first
-for k in range(members.shape[0]):
-    i, j = members[k,1], members[k,2]
-    ix, iy, jx, jy = joints[i-1,1], joints[i-1,2], joints[j-1,1], joints[j-1,2]
-    c = "#ff0000" if Q[k]>0 else ("#0000ff" if Q[k]<0 else "#00ff00")
-    ax.add_line(mlines.Line2D([ix,jx], [iy,jy], lw=2., color=c))
-    mx = (ix+jx)/2
-    my = (iy+jy)/2
-    ax.text(mx,my,str(int(members[k,0])), fontsize=8)
-
-# now the joints
-for i in range(joints.shape[0]):
-    ax.plot(joints[i,1], joints[i,2], 'ko')
-
-# draw the reaction and load forces. this gets a bit hairy..
-r = Q.tolist()[-3:]
-for i in range(3):
-    xp, yp = joints[supports[i]-1,1], joints[supports[i]-1,2]
-    axis = [1,0] if i == 0 else [0,1]
-    axis = [axis[0]*unit*1.2, axis[1]*unit]
-    ax.arrow(xp-axis[0],yp-axis[1],axis[0]*0.6,axis[1]*0.6,\
-             fc='k', ec='k', head_width=unit*0.15, head_length=unit*0.25)
-    ax.text(xp-axis[0]+unit*0.1, yp-axis[1]+unit*0.1, reactions[i], fontsize=8)
-
-num = applied.shape[0]-1
-for i in range(1,num+1):
-    xp, yp = joints[applied[i,0]-1,1], joints[applied[i,0]-1,2]
-    lx, ly = applied[i,1], applied[i,2]
-    mag = np.sqrt(lx**2 + ly**2)
-    lx, ly = lx/mag, ly/mag
-    ax.arrow(xp+lx*unit*0.2, yp+ly*unit*0.2, lx*unit*0.75, ly*unit*0.75,\
-             fc='k', ec='k', head_width=unit*0.15, head_length=unit*0.25)
-    ax.text(xp+(lx*1.5)*unit, yp+(ly*1.5)*unit, 'Load', fontsize=8)
-
-# draw a scale in the lower left
-xp = (joints[supports[0]-1,1] + joints[applied[1,0]-1,1])/2 - unit
-yp = joints[supports[0]-1,2] - unit*1.5
-ax.add_line(mlines.Line2D([xp,xp+unit],[yp,yp], lw=1., color="k"))
-ax.add_line(mlines.Line2D([xp,xp],[yp-0.1*unit,yp+0.1*unit], lw=1., color="k"))
-ax.add_line(mlines.Line2D([xp+unit,xp+unit],[yp-0.1*unit,yp+0.1*unit], lw=1., color="k"))
-ax.text(xp+unit*0.1, yp+unit*0.1, str(int(unit))+'mm', fontsize=8)
-
-# make sure the truss appears in the centre of the image
-ax.axis('equal')
-ax.axis([-unit,maxX+unit,-maxX/1.5,+maxX/1.5])
-ax.axis('off')
-fig.savefig(outpath + outputname + '.png')
-
-
-# ------ html page ------
 if html_output:
     OutputHTML()
+    Draw()
+else:
+    OutputPlaintext()
 
 
 print "analysis complete!"

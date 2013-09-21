@@ -66,8 +66,9 @@ list of material properties accessed from a dictionary
 
 # ------ some functions for analysis ------
 
-def ReloadMembersTable():
+def LoadMembersTable(joints,members_in):
     # find the geometric properties of all the members
+    members = members_in
     for k in range(members.shape[0]):
         i   = members[k,1]
         j   = members[k,2]
@@ -78,9 +79,10 @@ def ReloadMembersTable():
         mij = dy/L
         members[k,3], members[k,4], members[k,5], members[k,6], members[k,7]\
             = dx, dy, L, lij, mij
+    return members
 
 
-def ConstructCoefficientMatrix():
+def ConstructCoefficientMatrix(joints, members, supports):
     n = joints.shape[0] 
     C = np.zeros((2*n,2*n))
     for k in range(members.shape[0]):
@@ -152,8 +154,9 @@ def FindMaxLoad():
 def Temperature(k, kmax):
     t1 = 1-k/kmax
     t2 = np.exp(-k/kmax)
-    t3 = np.exp(-k*k/kmax)
-    return t3
+    t3 = 1/(1+np.exp(k/kmax))
+    t4 = 1.5/(1+np.exp(10*k/kmax))
+    return t4
 
 def Prob(load1, load2, temp):
     if load2 > load1:
@@ -249,10 +252,10 @@ def initTable(fout,n):
 
 def OutputHTML(filenumber):
     maxL_str = MaxLStrings()
-    fout = open(outpath + outputname + '.' + str(filenumber) + '.html', 'w')
+    fout = open(outpath + outputname + '.' + str(int(filenumber)) + '.html', 'w')
     fout.write('<!DOCTYPE html>\n<html>\n<head>\n<title>Results</title>\n</head>\n')
     fout.write('\n<body>\n')
-    fout.write('<img src="' + outputname + '.' + str(filenumber) + '.png">\n')
+    fout.write('<img src="' + outputname + '.' + str(int(filenumber)) + '.png">\n')
     if singular:
         fout.write('<p>The system produced a singular matrix.<br>\n' + \
 	           'These results were found by least squares approximation.<br></p>\n\n')
@@ -354,7 +357,7 @@ def Draw(filenumber):
     ax.axis('equal')
     ax.axis([-unit,maxX+unit,-maxX/1.5,+maxX/1.5])
     ax.axis('off')
-    fig.savefig(outpath + outputname + '.' + str(filenumber) + '.png')
+    fig.savefig(outpath + outputname + '.' + str(int(filenumber)) + '.png')
 
 
 
@@ -399,11 +402,11 @@ for n in range(8):
     members = np.concatenate((members, [[0]]*members.shape[0]), 1)
 # members table now has five extra columns (for geometric data) 
 # and three more for max load results
-ReloadMembersTable()
+members = LoadMembersTable(joints, members)
 
 
 # ------ initial calculation ------
-C = ConstructCoefficientMatrix()
+C = ConstructCoefficientMatrix(joints, members, supports)
 singular, Q = SolveTruss(C, P) 
 maxL, maxL_m = FindMaxLoad()
 OutputHTML(0)
@@ -412,30 +415,28 @@ Draw(0)
 
 # ------ data is loaded, begin annealing ------
 iterations = 0.0
-maxiterations = 2000.0
+maxiterations = 1000.0
 maxL_best = 0.0
 f = open(outpath + outputname + '.maxL.out','w')
 
 
 while iterations < maxiterations:
-    joints_old = joints
-    maxL_old = maxL
-    joints = Jiggle(joints)
-    ReloadMembersTable()
-    C = ConstructCoefficientMatrix()
+    joints_new = Jiggle(joints)
+    members = LoadMembersTable(joints_new, members)
+    C = ConstructCoefficientMatrix(joints_new, members, supports)
     singular, Q = SolveTruss(C, P)
-    maxL, maxL_m = FindMaxLoad()
-    if maxL > maxL_best:
-        joints_best = joints
-        maxL_best = maxL
+    maxL_new, maxL_m = FindMaxLoad()
+    if maxL_new > maxL_best:
+        joints_best = joints_new
+        maxL_best = maxL_new
     T = Temperature(iterations, maxiterations)
-    if Prob(maxL_old, maxL, T) > np.random.random():
+    if Prob(maxL, maxL_new, T) > np.random.random()**2:
         # good stuff, continue
-        f.write(str(maxL) + '\t..keep\n')
-    else:
-        f.write(str(maxL) + '\t..toss\n')
-        joints = joints_old
-        maxL = maxL_old
+        #Draw(iterations)
+        f.write('# ' + str(int(iterations)) + ':\t' + str(maxL_new) + '\t' \
+            + str(T) + '\t' + str(Prob(maxL, maxL_new, T)) + '\n')
+        joints = joints_new
+        maxL = maxL_new
     iterations = iterations + 1
 f.close()
 

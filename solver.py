@@ -431,12 +431,17 @@ Draw(truss, 0)
 
 # ------ data is loaded, begin annealing ------
 iterations = 0.0
-maxiterations = 2000.0
+maxiterations = 5000.0
 truss_best = truss
-iterationsSinceLastChange = 0
+resets = 0
+maxResets = 15
+failures = 0
+failuresBeforeReset = 300
 f = open(outpath + outputname + '.maxL.out','w')
+# draw each improvement?
+drawingSteps = False
 
-while iterations < maxiterations:
+while iterations < maxiterations or resets < maxResets:
     joints_new = Jiggle(truss.joints)
     truss_new = Truss(joints_new, members, supports, applied, material)
     truss_new.LoadData()
@@ -450,11 +455,13 @@ while iterations < maxiterations:
         f.write('# ' + str(int(iterations)) + ':\t' + str(truss_new.maxL) + '\t' \
             + str(T) + '\t' + str(Pr) + '\n')
         truss = truss_new
-        Draw(truss, iterations)
+        if drawingSteps:
+            Draw(truss, iterations)
     else:
-        iterationsSinceLastChange = iterationsSinceLastChange + 1
-    if iterationsSinceLastChange > 300:
-        iterationsSinceLastChange = 0
+        failures = failures + 1
+    if failures > failuresBeforeReset:
+        failures = 0
+        resets = resets + 1
         truss = truss_best
     iterations = iterations + 1
 f.close()

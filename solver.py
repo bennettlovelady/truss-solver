@@ -204,19 +204,20 @@ def Jiggle(jin):
     mag = 1.0
     jout = np.zeros((jin.shape[0],4))
     for i in range(jin.shape[0]):
-        jout[i,0] = jin[i,0]
-        dof = jin[i,3]
-        jout[i,3] = dof
-        dx, dy = np.random.random(), np.random.random()
-        dx, dy = dx*2-1, dy*2-1
-        if dof == 0:
-            jout[i,1], jout[i,2] = jin[i,1], jin[i,2]
-        elif dof == 1:
-	    jout[i,1], jout[i,2] = jin[i,1] + dx*mag, jin[i,2]
-        elif dof == 2:
-            jout[i,1], jout[i,2] = jin[i,1], jin[i,2] + dy*mag
-        else:
-            jout[i,1], jout[i,2] = jin[i,1] + dx*mag, jin[i,2] + dy*mag
+        for j in range(4):
+            jout[i,j] = jin[i,j]
+    i = int(np.random.random()*jin.shape[0])
+    dof = jin[i,3]
+    dx, dy = np.random.random(), np.random.random()
+    dx, dy = dx*2-1, dy*2-1
+    if dof == 0:
+        jout[i,1], jout[i,2] = jin[i,1], jin[i,2]
+    elif dof == 1:
+        jout[i,1], jout[i,2] = jin[i,1] + dx*mag, jin[i,2]
+    elif dof == 2:
+        jout[i,1], jout[i,2] = jin[i,1], jin[i,2] + dy*mag
+    else:
+        jout[i,1], jout[i,2] = jin[i,1] + dx*mag, jin[i,2] + dy*mag
     return jout
         
 
@@ -280,11 +281,12 @@ def OutputHTML(truss_, filenumber):
 
     # table of internal forces
     fout.write('<p>Internal forces:</p>\n')
-    initTable(fout,4)
-    fout.write('\t<tr><td>Member #</td><td>State</td>' + \
+    initTable(fout,5)
+    fout.write('\t<tr><td>Member #</td><td>Length/mm</td><td>State</td>' + \
                '<td>Force/Load</td><td>Max Load/N</td></tr>\n')
     for k in range(truss_.members.shape[0]):
         fout.write('\t<tr><td>' + str(k+1) + \
+                   '</td><td>' + str(round(truss_.members[k,5],1)) + \
                    '</td><td>' + TensionState(truss_.Q[k]) + \
                    '</td><td>' + str(round(truss_.Q[k],4)) + \
                    '</td><td>' + maxL_str[k] + '</td></tr>\n')
@@ -325,12 +327,9 @@ def Draw(truss_, filenumber):
     import matplotlib.text as text
     fig = plt.figure()
     ax = fig.add_subplot(1,1,1)
-    # find the unit length to use as padding
-    unit = 1000000
-    for k in range(truss_.members.shape[0]):
-        if truss_.members[k,5] < unit:
-            unit = truss_.members[k,5]
+
     maxX = truss_.TrussLength()
+    unit = maxX/8
 
     # draw the members first
     for k in range(truss_.members.shape[0]):
@@ -429,25 +428,31 @@ OutputHTML(truss, 0)
 Draw(truss, 0)
 
 
-# ------ data is loaded, begin annealing ------
+# ------ the main annealing loop ------
+# always chooses a better bridge, may choose a worse bridge
+# if the temp is high enough
+# if it reaches "maxResets" resets in a row, the solution has converged
 iterations = 0.0
-maxiterations = 5000.0
+maxiterations = float(raw_input("max iterations? "))
 truss_best = truss
 resets = 0
-maxResets = 15
+maxResets = 5
 failures = 0
 failuresBeforeReset = 300
 f = open(outpath + outputname + '.maxL.out','w')
 # draw each improvement?
-drawingSteps = False
+drawingSteps = True
 
-while iterations < maxiterations or resets < maxResets:
+while iterations < maxiterations and resets < maxResets:
     joints_new = Jiggle(truss.joints)
     truss_new = Truss(joints_new, members, supports, applied, material)
     truss_new.LoadData()
     truss_new.Solve()
     if truss_new.maxL > truss_best.maxL:
         truss_best = truss_new
+        resets = 0
+        if drawingSteps:
+            Draw(truss_new, iterations)
     T = Temperature(iterations, maxiterations)
     Pr = Prob(truss.maxL, truss_new.maxL, T)
     if Pr > np.random.random()**2:
@@ -455,14 +460,15 @@ while iterations < maxiterations or resets < maxResets:
         f.write('# ' + str(int(iterations)) + ':\t' + str(truss_new.maxL) + '\t' \
             + str(T) + '\t' + str(Pr) + '\n')
         truss = truss_new
-        if drawingSteps:
-            Draw(truss, iterations)
     else:
         failures = failures + 1
     if failures > failuresBeforeReset:
         failures = 0
         resets = resets + 1
+        print ".. reset! " + str(maxResets-resets) + " remain"
         truss = truss_best
+    if int(iterations)%500 == 0:
+        print "iteration #" + str(int(iterations)) + " - temp: " + str(T)
     iterations = iterations + 1
 f.close()
 

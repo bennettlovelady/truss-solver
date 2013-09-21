@@ -66,84 +66,84 @@ list of material properties accessed from a dictionary
 
 # ------ some functions for analysis ------
 
-def LoadMembersTable(joints,members_in):
+def LoadMembersTable(joints_in,members_in):
     # find the geometric properties of all the members
-    members = members_in
-    for k in range(members.shape[0]):
-        i   = members[k,1]
-        j   = members[k,2]
-        dx  = joints[j-1,1] - joints[i-1,1]
-        dy  = joints[j-1,2] - joints[i-1,2]
+    members_out = members_in
+    for k in range(members_in.shape[0]):
+        i   = members_in[k,1]
+        j   = members_in[k,2]
+        dx  = joints_in[j-1,1] - joints_in[i-1,1]
+        dy  = joints_in[j-1,2] - joints_in[i-1,2]
         L   = np.sqrt(dx**2 + dy**2)
         lij = dx/L
         mij = dy/L
-        members[k,3], members[k,4], members[k,5], members[k,6], members[k,7]\
+        members_out[k,3], members_out[k,4], members_out[k,5], members_out[k,6], members_out[k,7]\
             = dx, dy, L, lij, mij
-    return members
+    return members_out
 
 
-def ConstructCoefficientMatrix(joints, members, supports):
-    n = joints.shape[0] 
-    C = np.zeros((2*n,2*n))
-    for k in range(members.shape[0]):
-        i   = members[k,1]
-        j   = members[k,2]
-        lij = members[k,6]
-        mij = members[k,7]    
-        C[2*i-2, k] = lij
-        C[2*i-1, k] = mij
-        C[2*j-2, k] = -lij
-        C[2*j-1, k] = -mij
+def ConstructCoefficientMatrix(joints_in, members_in, supports_in):
+    n = joints_in.shape[0] 
+    Cm = np.zeros((2*n,2*n))
+    for k in range(members_in.shape[0]):
+        i   = members_in[k,1]
+        j   = members_in[k,2]
+        lij = members_in[k,6]
+        mij = members_in[k,7]    
+        Cm[2*i-2, k] = lij
+        Cm[2*i-1, k] = mij
+        Cm[2*j-2, k] = -lij
+        Cm[2*j-1, k] = -mij
     # now add the coefficients for the reaction forces:
-    C[2*supports[0]-2, 2*n-3] = 1
-    C[2*supports[1]-1, 2*n-2] = 1
-    C[2*supports[2]-1, 2*n-1] = 1
-    return C
+    Cm[2*supports_in[0]-2, 2*n-3] = 1
+    Cm[2*supports_in[1]-1, 2*n-2] = 1
+    Cm[2*supports_in[2]-1, 2*n-1] = 1
+    return Cm
 
 
-def SolveTruss(C, P):
+def SolveTruss(Ci, Pi):
     singular = False
     try:
         # invert the matrix
-        Q = np.linalg.solve(C,P)
+        Qi = np.linalg.solve(Ci,Pi)
     except np.linalg.LinAlgError:
         # if inversion doesn't work use numerical approximation
         print "singular matrix. using least squares.."
         singular = True
-        Q = np.linalg.lstsq(C,P)[0]
-    for i in range(len(Q)):
+        Qi = np.linalg.lstsq(Ci,Pi)[0]
+    for i in range(len(Qi)):
         # it sometimes gives tiny values like 1e-13, let's get rid of those:
-        if abs(Q[i]) < 0.001:
-            Q[i] = 0.0
-    return singular, Q
+        if abs(Qi[i]) < 0.001:
+            Qi[i] = 0.0
+    return singular, Qi
 
 
-def FindMaxLoad():
+def FindMaxLoad(members_in, Q_in):
     # use the material properties in materials.in to find the safe load
     # go through every member and calculate its maximum safe load
-    for k in range(members.shape[0]):
-        if Q[k] != 0:
+    for k in range(members_in.shape[0]):
+        if Q_in[k] != 0:
             # yield: F/A <= s.f * s_y
-            L_yield = material['sf'] * material['s_y'] * material['A'] / abs(Q[k])
-            members[k,8] = L_yield
+            L_yield = material['sf'] * material['s_y'] * material['A'] / abs(Q_in[k])
+            members_in[k,8] = L_yield
             # buckling: F <= s.f * pi^2 * E * I / l^2
-            if Q[k] < 0:
-                members[k,9] = material['sf'] * np.pi**2 * material['E'] * material['I'] \
-                                / (abs(Q[k]) * members[k,5]**2)
+            if Q_in[k] < 0:
+                members_in[k,9] = material['sf'] * np.pi**2 * material['E'] * material['I'] \
+                                / (abs(Q_in[k]) * members_in[k,5]**2)
                 # which is the smaller limit?
-                members[k,10] = min(members[k,8], members[k,9])
+                members_in[k,10] = min(members_in[k,8], members_in[k,9])
             else:
-                members[k,10] = members[k,8]
+                members_in[k,10] = members_in[k,8]
     maxL = 1e6
-    for k in range(members.shape[0]):
-        m = members[k,10]
+    for k in range(members_in.shape[0]):
+        m = members_in[k,10]
         if m != 0 and m <= maxL:
             maxL = m
     maxL_m = []
-    for k in range(members.shape[0]):
+    for k in range(members_in.shape[0]):
         # to account for floating point errors,
         # check if the member's maxL is within 1% of maxL
-        if np.allclose([members[k,10]], [maxL], rtol=1e-2):
+        if np.allclose([members_in[k,10]], [maxL], rtol=1e-2):
             maxL_m.append(k)
     return maxL, maxL_m
 
@@ -375,7 +375,8 @@ with open(inpath+'material.in', 'r') as fin:
 
 # joints
 with open(inpath+'joints.in','r') as fin:
-    joints = np.genfromtxt(fin, comments="#", delimiter="\t")
+    joints0 = np.genfromtxt(fin, comments="#", delimiter="\t")
+joints = joints0
 
 # supports 
 with open(inpath+'supports.in', 'r') as fin:
@@ -408,14 +409,16 @@ members = LoadMembersTable(joints, members)
 # ------ initial calculation ------
 C = ConstructCoefficientMatrix(joints, members, supports)
 singular, Q = SolveTruss(C, P) 
-maxL, maxL_m = FindMaxLoad()
+maxL, maxL_m = FindMaxLoad(members, Q)
 OutputHTML(0)
 Draw(0)
 
 # ------ data is loaded, begin annealing ------
 iterations = 0.0
 maxiterations = 2000.0
-maxL_best = 0.0
+maxL_best = maxL 
+joints_best = joints
+iterationsSinceLastChange = 0
 f = open(outpath + outputname + '.maxL.out','w')
 
 
@@ -424,7 +427,7 @@ while iterations < maxiterations:
     members = LoadMembersTable(joints_new, members)
     C = ConstructCoefficientMatrix(joints_new, members, supports)
     singular, Q = SolveTruss(C, P)
-    maxL_new, maxL_m = FindMaxLoad()
+    maxL_new, maxL_m = FindMaxLoad(members, Q)
     if maxL_new > maxL_best:
         joints_best = joints_new
         maxL_best = maxL_new
@@ -432,22 +435,29 @@ while iterations < maxiterations:
     Pr = Prob(maxL, maxL_new, T)
     if Pr > np.random.random()**2:
         # good stuff, continue
-        #Draw(iterations)
         f.write('# ' + str(int(iterations)) + ':\t' + str(maxL_new) + '\t' \
             + str(T) + '\t' + str(Pr) + '\n')
         joints = joints_new
         maxL = maxL_new
+        Draw(iterations)
+    else:
+        iterationsSinceLastChange = iterationsSinceLastChange + 1
+    if iterationsSinceLastChange > 300:
+        iterationsSinceLastChange = 0
+        joints = joints_best
+        maxL = maxL_best
     iterations = iterations + 1
 f.close()
 
 
-# ------ write the output ------
-
-if html_output:
-    OutputHTML(iterations)
-    Draw(iterations)
-else:
-    OutputPlaintext()
+# ------ write the output with the best configuration ------
+joints = joints_best
+members = LoadMembersTable(joints, members)
+C = ConstructCoefficientMatrix(joints, members, supports)
+singular, Q = SolveTruss(C, P) 
+maxL, maxL_m = FindMaxLoad(members, Q)
+OutputHTML(iterations)
+Draw(iterations)
 
 
 print "analysis complete!"

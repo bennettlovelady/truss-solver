@@ -63,89 +63,120 @@ material:
 list of material properties accessed from a dictionary
 '''
 
+# ------ a single data structure for the truss ------
+class Truss:
+    def __init__(self, joints_, members_, supports_, applied_, material_):
+        self.joints = joints_ 
+        self.members = members_
+        self.supports = supports_
+        self.applied = applied_
+        self.material = material_
+        self.C = None
+        self.P = None
+        self.Q = None
+        self.maxL = None
+        self.maxL_m = None
+        self.singular = None
 
-# ------ some functions for analysis ------
+    def LoadData(self):
+        # applied forces
+        n = self.joints.shape[0]
+        self.P = np.zeros(2*n)
+        num = self.applied.shape[0]-1
+        for i in range(1,num+1):
+            self.P[2*self.applied[i,0]-2] = -self.applied[i,1]
+            self.P[2*self.applied[i,0]-1] = -self.applied[i,2]
+        # members table
+        for k in range(self.members.shape[0]):
+            i   = self.members[k,1]
+            j   = self.members[k,2]
+            dx  = self.joints[j-1,1] - self.joints[i-1,1]
+            dy  = self.joints[j-1,2] - self.joints[i-1,2]
+            L   = np.sqrt(dx**2 + dy**2)
+            lij = dx/L
+            mij = dy/L
+            self.members[k,3], self.members[k,4] = dx,dy
+            self.members[k,5], self.members[k,6], self.members[k,7] = L, lij, mij
+        # coefficient matrix
+        Cm = np.zeros((2*n,2*n))
+        for k in range(self.members.shape[0]):
+            i   = self.members[k,1]
+            j   = self.members[k,2]
+            lij = self.members[k,6]
+            mij = self.members[k,7]    
+            Cm[2*i-2, k] = lij
+            Cm[2*i-1, k] = mij
+            Cm[2*j-2, k] = -lij
+            Cm[2*j-1, k] = -mij
+        # now add the coefficients for the reaction forces:
+        Cm[2*self.supports[0]-2, 2*n-3] = 1
+        Cm[2*self.supports[1]-1, 2*n-2] = 1
+        Cm[2*self.supports[2]-1, 2*n-1] = 1
+        self.C = Cm
 
-def LoadMembersTable(joints_in,members_in):
-    # find the geometric properties of all the members
-    members_out = members_in
-    for k in range(members_in.shape[0]):
-        i   = members_in[k,1]
-        j   = members_in[k,2]
-        dx  = joints_in[j-1,1] - joints_in[i-1,1]
-        dy  = joints_in[j-1,2] - joints_in[i-1,2]
-        L   = np.sqrt(dx**2 + dy**2)
-        lij = dx/L
-        mij = dy/L
-        members_out[k,3], members_out[k,4], members_out[k,5], members_out[k,6], members_out[k,7]\
-            = dx, dy, L, lij, mij
-    return members_out
+    def Solve(self):
+        self.singular = False
+        try:
+            # invert the matrix
+            self.Q = np.linalg.solve(self.C,self.P)
+        except np.linalg.LinAlgError:
+            # if inversion doesn't work use numerical approximation
+            print "singular matrix. using least squares.."
+            self.singular = True
+            self.Q = np.linalg.lstsq(self.C,self.P)[0]
+        for i in range(len(self.Q)):
+            # it sometimes gives tiny values like 1e-13, let's get rid of those:
+            if abs(self.Q[i]) < 0.01:
+                self.Q[i] = 0.0
+        # find the maximum load
+        for k in range(self.members.shape[0]):
+            if self.Q[k] != 0:
+                # yield: F/A <= s.f * s_y
+                L_yield = self.material['sf']*self.material['s_y']*self.material['A']/abs(self.Q[k])
+                self.members[k,8] = L_yield
+                # buckling: F <= s.f * pi^2 * E * I / l^2
+                if self.Q[k] < 0:
+                    self.members[k,9] = self.material['sf']*np.pi**2*self.material['E']*self.material['I'] \
+                                    / (abs(self.Q[k])*self.members[k,5]**2)
+                    # which is the smaller limit?
+                    self.members[k,10] = min(self.members[k,8], self.members[k,9])
+                else:
+                    self.members[k,10] = self.members[k,8]
+        self.maxL = 1e6
+        for k in range(self.members.shape[0]):
+            m = self.members[k,10]
+            if m != 0 and m <= self.maxL:
+                self.maxL = m
+        self.maxL_m = []
+        for k in range(self.members.shape[0]):
+            # to account for floating point errors,
+            # check if the member's maxL is within 1% of maxL
+            if np.allclose([self.members[k,10]], [self.maxL], rtol=1e-2):
+                self.maxL_m.append(k)
 
-
-def ConstructCoefficientMatrix(joints_in, members_in, supports_in):
-    n = joints_in.shape[0] 
-    Cm = np.zeros((2*n,2*n))
-    for k in range(members_in.shape[0]):
-        i   = members_in[k,1]
-        j   = members_in[k,2]
-        lij = members_in[k,6]
-        mij = members_in[k,7]    
-        Cm[2*i-2, k] = lij
-        Cm[2*i-1, k] = mij
-        Cm[2*j-2, k] = -lij
-        Cm[2*j-1, k] = -mij
-    # now add the coefficients for the reaction forces:
-    Cm[2*supports_in[0]-2, 2*n-3] = 1
-    Cm[2*supports_in[1]-1, 2*n-2] = 1
-    Cm[2*supports_in[2]-1, 2*n-1] = 1
-    return Cm
-
-
-def SolveTruss(Ci, Pi):
-    singular = False
-    try:
-        # invert the matrix
-        Qi = np.linalg.solve(Ci,Pi)
-    except np.linalg.LinAlgError:
-        # if inversion doesn't work use numerical approximation
-        print "singular matrix. using least squares.."
-        singular = True
-        Qi = np.linalg.lstsq(Ci,Pi)[0]
-    for i in range(len(Qi)):
-        # it sometimes gives tiny values like 1e-13, let's get rid of those:
-        if abs(Qi[i]) < 0.001:
-            Qi[i] = 0.0
-    return singular, Qi
-
-
-def FindMaxLoad(members_in, Q_in):
-    # use the material properties in materials.in to find the safe load
-    # go through every member and calculate its maximum safe load
-    for k in range(members_in.shape[0]):
-        if Q_in[k] != 0:
-            # yield: F/A <= s.f * s_y
-            L_yield = material['sf'] * material['s_y'] * material['A'] / abs(Q_in[k])
-            members_in[k,8] = L_yield
-            # buckling: F <= s.f * pi^2 * E * I / l^2
-            if Q_in[k] < 0:
-                members_in[k,9] = material['sf'] * np.pi**2 * material['E'] * material['I'] \
-                                / (abs(Q_in[k]) * members_in[k,5]**2)
-                # which is the smaller limit?
-                members_in[k,10] = min(members_in[k,8], members_in[k,9])
-            else:
-                members_in[k,10] = members_in[k,8]
-    maxL = 1e6
-    for k in range(members_in.shape[0]):
-        m = members_in[k,10]
-        if m != 0 and m <= maxL:
-            maxL = m
-    maxL_m = []
-    for k in range(members_in.shape[0]):
-        # to account for floating point errors,
-        # check if the member's maxL is within 1% of maxL
-        if np.allclose([members_in[k,10]], [maxL], rtol=1e-2):
-            maxL_m.append(k)
-    return maxL, maxL_m
+    # maximum load of each member as strings
+    def MaxLStrings(self):
+        maxL_str = ['']*self.members.shape[0]
+        for k in range(self.members.shape[0]):
+            m = self.members[k,10]
+            maxL_str[k] = '---' if m == 0 else str(round(m,2))
+        return maxL_str
+    
+    # maximum x-coord => bridge length
+    def TrussLength(self):
+        maxX = 0
+        for i in range(self.joints.shape[0]):
+            if self.joints[i,1] > maxX:
+                maxX = self.joints[i,1]
+        return maxX
+    
+    # total length of material used
+    def TotalMaterial(self):
+        sumL = 0
+        for k in range(self.members.shape[0]):
+            sumL = sumL + self.members[k,5]
+        return sumL
+        
 
 
 # ------ functions for annealing ------
@@ -192,28 +223,6 @@ def TensionState(x):
     else:
         return ''
 
-# maximum load of each member as strings
-def MaxLStrings():
-    maxL_str = ['']*members.shape[0]
-    for k in range(members.shape[0]):
-        m = members[k,10]
-        maxL_str[k] = '---' if m == 0 else str(round(m,2))
-    return maxL_str
-
-# maximum x-coord => bridge length
-def TrussLength():
-    maxX = 0
-    for i in range(joints.shape[0]):
-        if joints[i,1] > maxX:
-            maxX = joints[i,1]
-    return maxX
-
-# total length of material used
-def TotalMaterial():
-    sumL = 0
-    for k in range(members.shape[0]):
-        sumL = sumL + members[k,5]
-    return sumL
 
 def OutputPlaintext():
     maxL_str = MaxLStrings()
@@ -250,13 +259,13 @@ def initTable(fout,n):
                '\t</colgroup>\n')
 
 
-def OutputHTML(filenumber):
-    maxL_str = MaxLStrings()
+def OutputHTML(truss_, filenumber):
+    maxL_str = truss_.MaxLStrings()
     fout = open(outpath + outputname + '.' + str(int(filenumber)) + '.html', 'w')
     fout.write('<!DOCTYPE html>\n<html>\n<head>\n<title>Results</title>\n</head>\n')
     fout.write('\n<body>\n')
     fout.write('<img src="' + outputname + '.' + str(int(filenumber)) + '.png">\n')
-    if singular:
+    if truss_.singular:
         fout.write('<p>The system produced a singular matrix.<br>\n' + \
 	           'These results were found by least squares approximation.<br></p>\n\n')
 
@@ -265,43 +274,43 @@ def OutputHTML(filenumber):
     initTable(fout,4)
     fout.write('\t<tr><td>Member #</td><td>State</td>' + \
                '<td>Force/Load</td><td>Max Load/N</td></tr>\n')
-    for k in range(members.shape[0]):
+    for k in range(truss_.members.shape[0]):
         fout.write('\t<tr><td>' + str(k+1) + \
-                   '</td><td>' + TensionState(Q[k]) + \
-                   '</td><td>' + str(round(Q[k],4)) + \
+                   '</td><td>' + TensionState(truss_.Q[k]) + \
+                   '</td><td>' + str(round(truss_.Q[k],4)) + \
                    '</td><td>' + maxL_str[k] + '</td></tr>\n')
     for i in range(3):
         fout.write('\t<tr><td>' + reactions[i] + \
                    '</td><td>' + '---' + \
-                   '</td><td>' + str(round(Q[i-3],4)) + '</td><td></td></tr>\n')
+                   '</td><td>' + str(round(truss_.Q[i-3],4)) + '</td><td></td></tr>\n')
     fout.write('</table>\n\n<br><br>')
 
     # weakest members
     fout.write('<p>Weakest members: </p>')
     initTable(fout,3)
     fout.write('\t<tr><td>Member</td><td></td><td>Max Load / N</td></tr>\n')
-    for i in range(len(maxL_m)):
-        fout.write('\t<tr><td>Member ' + str(maxL_m[i]+1) + ':' + \
+    for i in range(len(truss_.maxL_m)):
+        fout.write('\t<tr><td>Member ' + str(truss_.maxL_m[i]+1) + ':' + \
                    '</td><td>' + \
-                   '</td><td>' + maxL_str[maxL_m[i]] + '</td></tr>\n')
+                   '</td><td>' + maxL_str[truss_.maxL_m[i]] + '</td></tr>\n')
     fout.write('</table><br><br>\n\n')
 
     # maximum load, bridge length and material used
     initTable(fout,3)
     fout.write('\t<tr><td>Max load:</td><td></td><td>' + \
-                str(round(maxL,4)) + ' N</td></tr>\n')
+                str(round(truss_.maxL,4)) + ' N</td></tr>\n')
     fout.write('\t<tr><td></td><td></td><td>' + \
-                str(round(maxL/9.81,4)) + ' kg</td></tr>\n')
+                str(round(truss_.maxL/9.81,4)) + ' kg</td></tr>\n')
     fout.write('\t<tr><td> </td></tr>\n')
     fout.write('\t<tr><td>Bridge length:</td><td></td><td>' + \
-                str(int(TrussLength())) + 'mm</td></tr>\n')
+                str(int(truss_.TrussLength())) + 'mm</td></tr>\n')
     fout.write('\t<tr><td>Material used:</td><td></td><td>' + \
-                str(int(TotalMaterial())) + 'mm</td></tr>\n')
+                str(int(truss_.TotalMaterial())) + 'mm</td></tr>\n')
     fout.write('</table><br><br>\n\n')
     fout.close()
 
 
-def Draw(filenumber):
+def Draw(truss_, filenumber):
     import matplotlib.pyplot as plt
     import matplotlib.lines as mlines
     import matplotlib.text as text
@@ -309,46 +318,47 @@ def Draw(filenumber):
     ax = fig.add_subplot(1,1,1)
     # find the unit length to use as padding
     unit = 1000000
-    for k in range(members.shape[0]):
-        if members[k,5] < unit:
-            unit = members[k,5]
-    maxX = TrussLength()
+    for k in range(truss_.members.shape[0]):
+        if truss_.members[k,5] < unit:
+            unit = truss_.members[k,5]
+    maxX = truss_.TrussLength()
 
     # draw the members first
-    for k in range(members.shape[0]):
-        i, j = members[k,1], members[k,2]
-        ix, iy, jx, jy = joints[i-1,1], joints[i-1,2], joints[j-1,1], joints[j-1,2]
-        c = "#ff0000" if Q[k]>0 else ("#0000ff" if Q[k]<0 else "#00ff00")
+    for k in range(truss_.members.shape[0]):
+        i, j = truss_.members[k,1], truss_.members[k,2]
+        ix, iy = truss_.joints[i-1,1], truss_.joints[i-1,2] 
+        jx, jy = truss_.joints[j-1,1], truss_.joints[j-1,2]
+        c = "#ff0000" if truss_.Q[k]>0 else ("#0000ff" if truss_.Q[k]<0 else "#00ff00")
         ax.add_line(mlines.Line2D([ix,jx], [iy,jy], lw=2., color=c))
         mx = (ix+jx)/2
         my = (iy+jy)/2
-        ax.text(mx,my,str(int(members[k,0])), fontsize=8)
+        ax.text(mx,my,str(int(truss_.members[k,0])), fontsize=8)
 
     # now the joints
-    for i in range(joints.shape[0]):
-        ax.plot(joints[i,1], joints[i,2], 'ko')
+    for i in range(truss_.joints.shape[0]):
+        ax.plot(truss_.joints[i,1], truss_.joints[i,2], 'ko')
 
     # draw the reaction and load forces. this gets a bit hairy..
-    r = Q.tolist()[-3:]
+    r = truss_.Q.tolist()[-3:]
     for i in range(3):
-        xp, yp = joints[supports[i]-1,1], joints[supports[i]-1,2]
+        xp, yp = truss_.joints[truss_.supports[i]-1,1], truss_.joints[truss_.supports[i]-1,2]
         axis = [1,0] if i == 0 else [0,1]
         axis = [axis[0]*unit*1.2, axis[1]*unit]
         ax.arrow(xp-axis[0],yp-axis[1],axis[0]*0.6,axis[1]*0.6,\
                  fc='k', ec='k', head_width=unit*0.15, head_length=unit*0.25)
         ax.text(xp-axis[0]+unit*0.1, yp-axis[1]+unit*0.1, reactions[i], fontsize=8)
-    num = applied.shape[0]-1
+    num = truss_.applied.shape[0]-1
     for i in range(1,num+1):
-        xp, yp = joints[applied[i,0]-1,1], joints[applied[i,0]-1,2]
-        lx, ly = applied[i,1], applied[i,2]
+        xp, yp = truss_.joints[truss_.applied[i,0]-1,1], truss_.joints[truss_.applied[i,0]-1,2]
+        lx, ly = truss_.applied[i,1], truss_.applied[i,2]
         mag = np.sqrt(lx**2 + ly**2)
         lx, ly = lx/mag, ly/mag
         ax.arrow(xp+lx*unit*0.2, yp+ly*unit*0.2, lx*unit*0.75, ly*unit*0.75,\
                  fc='k', ec='k', head_width=unit*0.15, head_length=unit*0.25)
         ax.text(xp+(lx*1.5)*unit, yp+(ly*1.5)*unit, 'Load', fontsize=8)
     # draw a scale in the lower left
-    xp = (joints[supports[0]-1,1] + joints[applied[1,0]-1,1])/2 - unit
-    yp = joints[supports[0]-1,2] - unit*1.5
+    xp = (truss_.joints[truss_.supports[0]-1,1] + truss_.joints[truss_.applied[1,0]-1,1])/2 - unit
+    yp = truss_.joints[truss_.supports[0]-1,2] - unit*1.5
     ax.add_line(mlines.Line2D([xp,xp+unit],[yp,yp], lw=1., color="k"))
     ax.add_line(mlines.Line2D([xp,xp],[yp-0.1*unit,yp+0.1*unit], lw=1., color="k"))
     ax.add_line(mlines.Line2D([xp+unit,xp+unit],[yp-0.1*unit,yp+0.1*unit], lw=1., color="k"))
@@ -375,8 +385,7 @@ with open(inpath+'material.in', 'r') as fin:
 
 # joints
 with open(inpath+'joints.in','r') as fin:
-    joints0 = np.genfromtxt(fin, comments="#", delimiter="\t")
-joints = joints0
+    joints = np.genfromtxt(fin, comments="#", delimiter="\t")
 
 # supports 
 with open(inpath+'supports.in', 'r') as fin:
@@ -403,61 +412,50 @@ for n in range(8):
     members = np.concatenate((members, [[0]]*members.shape[0]), 1)
 # members table now has five extra columns (for geometric data) 
 # and three more for max load results
-members = LoadMembersTable(joints, members)
 
+truss = Truss(joints, members, supports, applied, material)
+truss.LoadData()
+truss.Solve()
+OutputHTML(truss, 0)
+Draw(truss, 0)
 
-# ------ initial calculation ------
-C = ConstructCoefficientMatrix(joints, members, supports)
-singular, Q = SolveTruss(C, P) 
-maxL, maxL_m = FindMaxLoad(members, Q)
-OutputHTML(0)
-Draw(0)
 
 # ------ data is loaded, begin annealing ------
 iterations = 0.0
 maxiterations = 2000.0
-maxL_best = maxL 
-joints_best = joints
+maxL_best = truss.maxL 
+truss_best = truss
 iterationsSinceLastChange = 0
 f = open(outpath + outputname + '.maxL.out','w')
 
 
 while iterations < maxiterations:
-    joints_new = Jiggle(joints)
-    members = LoadMembersTable(joints_new, members)
-    C = ConstructCoefficientMatrix(joints_new, members, supports)
-    singular, Q = SolveTruss(C, P)
-    maxL_new, maxL_m = FindMaxLoad(members, Q)
-    if maxL_new > maxL_best:
-        joints_best = joints_new
-        maxL_best = maxL_new
+    joints_new = Jiggle(truss.joints)
+    truss_new = Truss(joints_new, members, supports, applied, material)
+    truss_new.LoadData()
+    truss_new.Solve()
+    if truss_new.maxL > truss_best.maxL:
+        truss_best = truss_new
     T = Temperature(iterations, maxiterations)
-    Pr = Prob(maxL, maxL_new, T)
+    Pr = Prob(truss.maxL, truss_new.maxL, T)
     if Pr > np.random.random()**2:
         # good stuff, continue
-        f.write('# ' + str(int(iterations)) + ':\t' + str(maxL_new) + '\t' \
+        f.write('# ' + str(int(iterations)) + ':\t' + str(truss_new.maxL) + '\t' \
             + str(T) + '\t' + str(Pr) + '\n')
-        joints = joints_new
-        maxL = maxL_new
-        Draw(iterations)
+        truss = truss_new
+        Draw(truss, iterations)
     else:
         iterationsSinceLastChange = iterationsSinceLastChange + 1
     if iterationsSinceLastChange > 300:
         iterationsSinceLastChange = 0
-        joints = joints_best
-        maxL = maxL_best
+        truss = truss_best
     iterations = iterations + 1
 f.close()
 
 
 # ------ write the output with the best configuration ------
-joints = joints_best
-members = LoadMembersTable(joints, members)
-C = ConstructCoefficientMatrix(joints, members, supports)
-singular, Q = SolveTruss(C, P) 
-maxL, maxL_m = FindMaxLoad(members, Q)
-OutputHTML(iterations)
-Draw(iterations)
+OutputHTML(truss_best, iterations)
+Draw(truss_best, iterations)
 
 
 print "analysis complete!"

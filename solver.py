@@ -155,14 +155,14 @@ def Temperature(k, kmax):
     t1 = 1-k/kmax
     t2 = np.exp(-k/kmax)
     t3 = 1/(1+np.exp(k/kmax))
-    t4 = 1.5/(1+np.exp(10*k/kmax))
+    t4 = 2/(1+np.exp(10*k/kmax))
     return t4
 
 def Prob(load1, load2, temp):
     if load2 > load1:
         return 1.0
     else:
-        return np.exp(-(load1-load2)/temp)
+        return np.exp(-10*(load1-load2)/temp)
 
 
 def Jiggle(jin):
@@ -412,10 +412,9 @@ maxL, maxL_m = FindMaxLoad()
 OutputHTML(0)
 Draw(0)
 
-
 # ------ data is loaded, begin annealing ------
 iterations = 0.0
-maxiterations = 1000.0
+maxiterations = 2000.0
 maxL_best = 0.0
 f = open(outpath + outputname + '.maxL.out','w')
 
@@ -430,11 +429,12 @@ while iterations < maxiterations:
         joints_best = joints_new
         maxL_best = maxL_new
     T = Temperature(iterations, maxiterations)
-    if Prob(maxL, maxL_new, T) > np.random.random()**2:
+    Pr = Prob(maxL, maxL_new, T)
+    if Pr > np.random.random()**2:
         # good stuff, continue
         #Draw(iterations)
         f.write('# ' + str(int(iterations)) + ':\t' + str(maxL_new) + '\t' \
-            + str(T) + '\t' + str(Prob(maxL, maxL_new, T)) + '\n')
+            + str(T) + '\t' + str(Pr) + '\n')
         joints = joints_new
         maxL = maxL_new
     iterations = iterations + 1

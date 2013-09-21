@@ -136,11 +136,13 @@ class Truss:
                 self.members[k,8] = L_yield
                 # buckling: F <= s.f * pi^2 * E * I / l^2
                 if self.Q[k] < 0:
-                    self.members[k,9] = self.material['sf']*np.pi**2*self.material['E']*self.material['I'] \
+                    L_buckling = self.material['sf']*np.pi**2*self.material['E']*self.material['I'] \
                                     / (abs(self.Q[k])*self.members[k,5]**2)
+                    self.members[k,9] = L_buckling
                     # which is the smaller limit?
                     self.members[k,10] = min(self.members[k,8], self.members[k,9])
                 else:
+                    self.members[k,9] = 0
                     self.members[k,10] = self.members[k,8]
         self.maxL = 1e6
         for k in range(self.members.shape[0]):
@@ -200,15 +202,21 @@ def Jiggle(jin):
     # takes a "joints" structure and jiggles them a bit
     # dof is 0,1,2,3 = none, l/r, u/d, u/d/l/r movement allowed
     mag = 1.0
-    jout = jin
-    for i in range(jout.shape[0]):
-        dof = jout[i,3]
+    jout = np.zeros((jin.shape[0],4))
+    for i in range(jin.shape[0]):
+        jout[i,0] = jin[i,0]
+        dof = jin[i,3]
+        jout[i,3] = dof
         dx, dy = np.random.random(), np.random.random()
         dx, dy = dx*2-1, dy*2-1
-        if dof in [1,3]:
-            jout[i,1] = jout[i,1] + dx*mag
-        if dof in [2,3]:
-            jout[i,2] = jout[i,2] + dy*mag
+        if dof == 0:
+            jout[i,1], jout[i,2] = jin[i,1], jin[i,2]
+        elif dof == 1:
+	    jout[i,1], jout[i,2] = jin[i,1] + dx*mag, jin[i,2]
+        elif dof == 2:
+            jout[i,1], jout[i,2] = jin[i,1], jin[i,2] + dy*mag
+        else:
+            jout[i,1], jout[i,2] = jin[i,1] + dx*mag, jin[i,2] + dy*mag
     return jout
         
 
@@ -260,6 +268,7 @@ def initTable(fout,n):
 
 
 def OutputHTML(truss_, filenumber):
+    print "outputting truss with maxL = " + str(truss_.maxL)
     maxL_str = truss_.MaxLStrings()
     fout = open(outpath + outputname + '.' + str(int(filenumber)) + '.html', 'w')
     fout.write('<!DOCTYPE html>\n<html>\n<head>\n<title>Results</title>\n</head>\n')
@@ -365,7 +374,7 @@ def Draw(truss_, filenumber):
     ax.text(xp+unit*0.1, yp+unit*0.1, str(int(unit))+'mm', fontsize=8)
     # make sure the truss appears in the centre of the image
     ax.axis('equal')
-    ax.axis([-unit,maxX+unit,-maxX/1.5,+maxX/1.5])
+    ax.axis([-maxX/10.0,maxX*1.1,-maxX/1.5,+maxX/1.5])
     ax.axis('off')
     fig.savefig(outpath + outputname + '.' + str(int(filenumber)) + '.png')
 
@@ -423,11 +432,9 @@ Draw(truss, 0)
 # ------ data is loaded, begin annealing ------
 iterations = 0.0
 maxiterations = 2000.0
-maxL_best = truss.maxL 
 truss_best = truss
 iterationsSinceLastChange = 0
 f = open(outpath + outputname + '.maxL.out','w')
-
 
 while iterations < maxiterations:
     joints_new = Jiggle(truss.joints)
@@ -454,6 +461,8 @@ f.close()
 
 
 # ------ write the output with the best configuration ------
+print "last truss is maxL = " + str(truss.maxL)
+print "best truss is maxL = " + str(truss_best.maxL)
 OutputHTML(truss_best, iterations)
 Draw(truss_best, iterations)
 

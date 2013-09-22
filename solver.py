@@ -32,9 +32,16 @@ Can define restart(): s=s_best, e=e_best to help with cooling
 
 In a truss context the energy is replaced by maximum load which
 is maximised rather than minimised
+
+new cooling schedule:
+iterate(k++)
+if k = kmax: k0 = (kmax+k0)/2; k = k0    # heat it to half of the last "hot" temp
+if no improvements in last "m" tries: reset to the best
+if "m" resets in a row: convergence achieved! 
 '''
 
 import numpy as np
+import copy
 
 bridgenumber = raw_input('input the numbered file in "/anneal" containing the .in files: ')
 inpath = '/home/bennett/Documents/ensc1002/anneal/' + bridgenumber + '/'
@@ -78,6 +85,9 @@ class Truss:
         self.maxL_m = None
         self.singular = None
 
+    def copy(self):
+        return copy.deepcopy(self)
+
     def LoadData(self):
         # applied forces
         n = self.joints.shape[0]
@@ -113,6 +123,20 @@ class Truss:
         Cm[2*self.supports[1]-1, 2*n-2] = 1
         Cm[2*self.supports[2]-1, 2*n-1] = 1
         self.C = Cm
+        # degrees of freedom for each joint
+        # roadbed can move l/r
+        for i in range(self.joints.shape[0]):
+            if self.joints[i,2] == 0:
+                self.joints[i,3] = 1
+            else:
+                self.joints[i,3] = 3
+        # supports can't move
+        self.joints[self.supports[0]-1,3] = 0
+        self.joints[self.supports[1]-1,3] = 0
+        self.joints[self.supports[2]-1,3] = 0
+        # loaded joints can't move
+        for i in range(1,num+1):
+            self.joints[self.applied[i,0]-1,3] = 0
 
     def Solve(self):
         self.singular = False
@@ -189,7 +213,8 @@ def Temperature(k, kmax):
     t2 = np.exp(-k/kmax)
     t3 = 1/(1+np.exp(k/kmax))
     t4 = 2/(1+np.exp(10*k/kmax))
-    return t4
+    t5 = 2/(1+np.exp(15*k/kmax))
+    return t5
 
 def Prob(load1, load2, temp):
     if load2 > load1:
@@ -371,6 +396,8 @@ def Draw(truss_, filenumber):
     ax.add_line(mlines.Line2D([xp,xp],[yp-0.1*unit,yp+0.1*unit], lw=1., color="k"))
     ax.add_line(mlines.Line2D([xp+unit,xp+unit],[yp-0.1*unit,yp+0.1*unit], lw=1., color="k"))
     ax.text(xp+unit*0.1, yp+unit*0.1, str(int(unit))+'mm', fontsize=8)
+    # write the max load below the scale
+    ax.text(xp, yp-0.3*unit, 'max:'+str(round(truss_.maxL,2))+' N', fontsize=8)
     # make sure the truss appears in the centre of the image
     ax.axis('equal')
     ax.axis([-maxX/10.0,maxX*1.1,-maxX/1.5,+maxX/1.5])
@@ -432,44 +459,65 @@ Draw(truss, 0)
 # always chooses a better bridge, may choose a worse bridge
 # if the temp is high enough
 # if it reaches "maxResets" resets in a row, the solution has converged
-iterations = 0.0
-maxiterations = float(raw_input("max iterations? "))
-truss_best = truss
+k0 = 0.0
+k = k0
+kmax = float(raw_input("length of heating cycle? "))
+iterations = 0
+fails = 0
+failsPerReset = 400
 resets = 0
 maxResets = 5
-failures = 0
-failuresBeforeReset = 300
+truss_best = truss
+hitsSinceLastDraw = 0
+hitsPerDraw = 20
 f = open(outpath + outputname + '.maxL.out','w')
 # draw each improvement?
 drawingSteps = True
 
-while iterations < maxiterations and resets < maxResets:
+while resets < maxResets:
     joints_new = Jiggle(truss.joints)
     truss_new = Truss(joints_new, members, supports, applied, material)
     truss_new.LoadData()
     truss_new.Solve()
     if truss_new.maxL > truss_best.maxL:
-        truss_best = truss_new
+        truss_best = truss_new.copy()
         resets = 0
+        # draw it?
         if drawingSteps:
-            Draw(truss_new, iterations)
-    T = Temperature(iterations, maxiterations)
+            hitsSinceLastDraw = hitsSinceLastDraw + 1
+            if hitsSinceLastDraw == hitsPerDraw:
+                hitsSinceLastDraw = 0
+                Draw(truss_best, iterations)
+    T = Temperature(k, kmax)
     Pr = Prob(truss.maxL, truss_new.maxL, T)
     if Pr > np.random.random()**2:
         # good stuff, continue
         f.write('# ' + str(int(iterations)) + ':\t' + str(truss_new.maxL) + '\t' \
             + str(T) + '\t' + str(Pr) + '\n')
-        truss = truss_new
+        truss = truss_new.copy()
     else:
-        failures = failures + 1
-    if failures > failuresBeforeReset:
-        failures = 0
-        resets = resets + 1
-        print ".. reset! " + str(maxResets-resets) + " remain"
-        truss = truss_best
-    if int(iterations)%500 == 0:
-        print "iteration #" + str(int(iterations)) + " - temp: " + str(T)
+        fails = fails + 1
+
     iterations = iterations + 1
+    if (iterations % 500) == 0:
+        print "iteration #" + str(int(iterations)) + " - T: " + str(T)
+    
+    k = k + 1
+    if k >= kmax:
+        #k0 = (kmax + k0)/2
+        k = k0
+        if abs(k-kmax) < 100:
+            # don't bother heating by less than 50 units
+            print "can't heat anymore.. ending simulation"
+            break
+        print "heating! k: " + str(k) + ", T: " + str(Temperature(k, kmax))
+
+    if fails == failsPerReset:
+        fails = 0
+        resets = resets + 1
+        truss = truss_best.copy()
+        print "..reset! " + str(maxResets-resets) + " resets remain"
+
 f.close()
 
 

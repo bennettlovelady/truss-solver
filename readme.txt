@@ -1,5 +1,7 @@
 for specific information please see http://www.bennettlovelady.net/software/finding-a-better-truss/
 
+solver.py is where the juicy bits lie
+
 there are 7 main steps within the solver program:
 
 step 1: read the input data

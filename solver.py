@@ -30,14 +30,14 @@ P(e,e',T) returns probability of moving from s->s' at temp T
     usually defined as 1 if e'<e, or exp(-(e'-e)/T) otherwise
 Can define restart(): s=s_best, e=e_best to help with cooling
 
-In a truss context the energy is replaced by maximum load which
+In a truss context the energy can be replaced by maximum load which
 is maximised rather than minimised
 
 new cooling schedule:
 iterate(k++)
-if k = kmax: k0 = (kmax+k0)/2; k = k0    # heat it to half of the last "hot" temp
+if k = kmax: k = k0	# heat it back to 'hot' temperature
 if no improvements in last "m" tries: reset to the best
-if "m" resets in a row: convergence achieved! 
+if "n" resets in a row: convergence achieved! 
 '''
 
 import numpy as np
@@ -52,6 +52,8 @@ html_output = True
 
 
 '''
+---input files---
+
 joints: 
 [joint #] [x coord (mm)] [y coord (mm)] [degree of freedom]
 
@@ -89,6 +91,8 @@ class Truss:
         return copy.deepcopy(self)
 
     def LoadData(self):
+        # set up the data tables and prepare the matrices
+
         # applied forces
         n = self.joints.shape[0]
         self.P = np.zeros(2*n)
@@ -180,7 +184,7 @@ class Truss:
             if np.allclose([self.members[k,10]], [self.maxL], rtol=1e-2):
                 self.maxL_m.append(k)
 
-    # maximum load of each member as strings
+    # maximum load of each member as a string
     def MaxLStrings(self):
         maxL_str = ['']*self.members.shape[0]
         for k in range(self.members.shape[0]):
@@ -209,12 +213,12 @@ class Truss:
 
 
 def Temperature(k, kmax):
-    t1 = 1-k/kmax
-    t2 = np.exp(-k/kmax)
-    t3 = 1/(1+np.exp(k/kmax))
-    t4 = 2/(1+np.exp(10*k/kmax))
-    t5 = 2/(1+np.exp(15*k/kmax))
-    return t5
+    #t = 1-k/kmax
+    #t = np.exp(-k/kmax)
+    #t = 1/(1+np.exp(k/kmax))
+    #t = 2/(1+np.exp(10*k/kmax))
+    t = 2/(1+np.exp(15*k/kmax))
+    return t
 
 def Prob(load1, load2, temp):
     if load2 > load1:

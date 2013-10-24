@@ -472,7 +472,7 @@ hitsSinceLastDraw = 0
 hitsPerDraw = 20
 f = open(outpath + outputname + '.maxL.out','w')
 # draw each improvement?
-drawingSteps = True
+drawingSteps = True if raw_input("draw each step? [y/n] ") == 'y' else False
 
 while resets < maxResets:
     joints_new = Jiggle(truss.joints)

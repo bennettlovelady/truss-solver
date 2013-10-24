@@ -1,0 +1,12 @@
+# the material properties of the truss members
+# young's modulus (MPa)
+E 2000 
+# area moment of inertia (mm^4)
+I 39.66417
+# cross sectional area (mm)
+A 10.92489
+# yield stress (MPa)
+s_y 25
+# safety factor
+sf 1
+

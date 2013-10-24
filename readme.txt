@@ -1,3 +1,5 @@
+for specific information please see http://www.bennettlovelady.net/software/finding-a-better-truss/
+
 there are 7 main steps within the solver program:
 
 step 1: read the input data
